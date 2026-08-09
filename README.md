@@ -72,8 +72,9 @@ zwei Sender, nicht acht.
 
 - Bridge läuft, end-to-end mit echtem ALSA-MIDI geprüft
 - Beide Firmwares kompilieren warnungsfrei (`-Wall -Wextra` auf den eigenen Targets)
-- Web-UI mit Live-Status, Modelleditor und Anschlussübersicht
-- 78 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
+- Web-UI mit Live-Status, Modelleditor, Anschlussübersicht sowie Bauen und
+  Aufspielen der Firmware
+- 91 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
   Protokolls, eine Verifikation der PPM-Timing-Rechnung und ein Compiler-Lauf
   über die generierte Bordkonfiguration
 
@@ -118,12 +119,33 @@ inklusive **physischer Pinnummer** auf der Platine, dazu der geschätzte
 LED-Strom und die fertige `config.h`. Ein Knopf schreibt sie nach
 `firmware/plane/generated/<modell>.h`.
 
+**Firmware bauen und aufspielen** — im Anschluss-Tab, ohne Terminal. Die UI
+prüft vorher die Toolchain und sagt konkret, was fehlt, statt einen
+Compiler-Fehler zu zeigen. Der Build läuft im Hintergrund, das Log steht live
+auf der Seite.
+
+Beim Aufspielen unterscheiden sich die beiden Boards, und das lässt sich nicht
+wegprogrammieren:
+
+| Board | Weg in den Bootloader |
+|---|---|
+| **Bodenstation** | macht die UI selbst — der Pico hat USB-Stdio, und die SDK-Vorgabe „Reset über Baudrate 1200“ ist aktiv. Kein picotool, kein sudo, keine udev-Regeln. |
+| **Pico im Flieger** | von Hand: BOOTSEL halten, USB anstecken, loslassen. Dort ist USB-Stdio abgeschaltet (im Flug ist der Port ohnehin stromlos), also meldet sich das Board gar nicht am Rechner. |
+
+Sobald ein Board im Bootloader hängt, erscheint es als Laufwerk `RPI-RP2` und
+die UI kopiert die `.uf2` hinüber — ein reiner Dateikopiervorgang. Stecken zwei
+Boards gleichzeitig im Bootloader, bricht sie ab statt zu raten.
+
+> Bauen und Flashen führen Befehle aus und sind deshalb **nur von localhost**
+> erlaubt. Über `--web-host 0.0.0.0` sieht man die Oberfläche zwar, aber die
+> Knöpfe antworten mit 403.
+
 ### Warum die Bordkonfiguration generiert wird
 
 Zum Flieger führt kein Datenweg außer den RC-Kanälen — man kann ihn nicht zur
 Laufzeit umkonfigurieren. Deshalb ist die Modelldefinition in `show.yaml` die
 einzige Quelle, und daraus entsteht der Header, mit dem die Bordfirmware
-übersetzt wird:
+übersetzt wird. Auf der Kommandozeile geht dasselbe:
 
 ```bash
 cd host && ./.venv/bin/python -m lightshow --generate eule
@@ -464,7 +486,7 @@ Modell im Flug, dann skalieren.
 cd host && ./.venv/bin/python -m pytest tests -v
 ```
 
-78 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
+91 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
 `tools/ctest/` kompiliert die **echten** Firmware-Quellen für den PC und prüft
 sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 
@@ -477,6 +499,7 @@ sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 | `test_ppm_frame.py`    | PPM-Timing aus dem echten Frame-Builder rekonstruiert         |
 | `test_relay_logic.py`  | Relais-Quellen und Mindestschaltzeiten der Bordfirmware       |
 | `test_planegen.py`     | generierte Bordkonfiguration, Anschlussliste, YAML-Roundtrip  |
+| `test_flasher.py`      | Bootloader-Erkennung, Kopiervorgang, Toolchain-Prüfung        |
 
 Drei davon lohnen eine Erklärung:
 
@@ -511,6 +534,7 @@ make -C tools/ctest
 | Mapping stimmt          | `python -m lightshow --dry-run`                            |
 | Konfiguration gültig    | `python -m lightshow --check`                              |
 | UI erreichbar           | Bridge starten, `http://127.0.0.1:8765/` öffnen            |
+| Bauen aus der UI        | Anschluss-Tab → „Bordfirmware bauen“, Log muss durchlaufen |
 | PPM-Signal korrekt      | Jumper GPIO2 → GPIO10, `SELFTEST`-Zeile lesen              |
 | Failsafe Bodenstation   | USB im Betrieb abziehen → Ausgänge binnen 250 ms auf Failsafe |
 | Failsafe Modell         | Sender ausschalten → nach 500 ms bernsteinfarbenes Pulsen, alle Relais fallen ab |

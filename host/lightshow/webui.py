@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from . import config as config_module
+from . import flasher
 from . import planegen
 
 WEB_ROOT = Path(__file__).parent / "web"
@@ -85,6 +86,7 @@ class Server:
         self._rate_window = (0.0, 0)
         self._alsa: list[str] = []
         self._alsa_checked = 0.0
+        self._job: flasher.Job | None = None
 
     # ------------------------------------------------------------------ state
 
@@ -224,6 +226,46 @@ class Server:
         path.write_text(payload["header"])
         return {"ok": True, "path": str(path)}
 
+    # ------------------------------------------------------- build and flash
+
+    def job_state(self) -> dict:
+        if self._job is None:
+            return {"idle": True}
+        state = self._job.snapshot()
+        state["idle"] = False
+        return state
+
+    def start_job(self, kind: str, model: str | None) -> dict:
+        if self._job is not None and not self._job.done:
+            return {"ok": False, "error": "Es läuft bereits ein Vorgang."}
+        if kind in ("build-plane", "flash-plane") and not model:
+            return {"ok": False, "error": "kein Modell angegeben"}
+
+        if kind == "build-plane":
+            job = flasher.Job(f"Bordfirmware bauen: {model}")
+            target = lambda: flasher.build_plane(job, self.repo_root, model)  # noqa: E731
+        elif kind == "build-ground":
+            job = flasher.Job("Bodenstation bauen")
+            target = lambda: flasher.build_ground(job, self.repo_root)  # noqa: E731
+        elif kind == "flash-plane":
+            job = flasher.Job(f"Bordfirmware aufspielen: {model}")
+            uf2 = self.repo_root / f"build/plane-{model}" / "lightshow_plane.uf2"
+            # The airborne board has no USB stdio, so it cannot be reset from here.
+            target = lambda: flasher.flash(job, uf2, None)  # noqa: E731
+        elif kind == "flash-ground":
+            job = flasher.Job("Bodenstation aufspielen")
+            uf2 = self.repo_root / "build/pico" / "lightshow_tx.uf2"
+            device = None if self.link.dry_run else self.link.device
+            if device:
+                self.link.close()  # release the port so the reset can happen
+            target = lambda: flasher.flash(job, uf2, device)  # noqa: E731
+        else:
+            return {"ok": False, "error": f"unbekannter Vorgang '{kind}'"}
+
+        self._job = job
+        threading.Thread(target=target, daemon=True, name="firmware").start()
+        return {"ok": True, "name": job.name}
+
     # ------------------------------------------------------------------ serve
 
     def start(self) -> str:
@@ -281,10 +323,26 @@ def _make_handler(server: Server):
                             "path": str(server.config_path)})
             elif path.startswith("/api/plane/"):
                 self._json(server.plane_payload(unquote(path.split("/api/plane/")[1])))
+            elif path == "/api/toolchain":
+                payload = flasher.toolchain_status()
+                payload["bootsel"] = flasher.find_bootsel()
+                payload["local"] = self._is_local()
+                self._json(payload)
+            elif path == "/api/job":
+                self._json(server.job_state())
             elif path == "/api/events":
                 self._events()
             else:
                 self._json({"error": "not found"}, 404)
+
+        def _is_local(self) -> bool:
+            """Building and flashing run commands, so only the local machine may.
+
+            With --web-host 0.0.0.0 the UI is reachable from the network, and
+            nobody there should be able to start a compiler or overwrite a
+            board's firmware.
+            """
+            return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
 
         def _events(self) -> None:
             self.send_response(200)
@@ -315,6 +373,15 @@ def _make_handler(server: Server):
                 elif path.startswith("/api/plane/"):
                     name = unquote(path.split("/api/plane/")[1])
                     self._json(server.write_plane_header(name))
+                elif path == "/api/job":
+                    if not self._is_local():
+                        self._json({"ok": False, "error":
+                                    "Bauen und Flashen geht nur direkt am Rechner, "
+                                    "nicht über das Netzwerk."}, 403)
+                        return
+                    body = self._read_json()
+                    self._json(server.start_job(body.get("kind", ""),
+                                                body.get("model")))
                 else:
                     self._json({"error": "not found"}, 404)
             except json.JSONDecodeError as exc:

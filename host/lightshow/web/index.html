@@ -146,6 +146,21 @@ pre {
       </div>
       <div id="write-banner" class="banner hidden" style="margin-top:12px"></div>
     </section>
+
+    <section class="panel">
+      <h2>Firmware bauen und aufspielen</h2>
+      <div id="toolchain" class="banner hidden"></div>
+      <div class="row">
+        <button id="btn-build-plane">Bordfirmware bauen</button>
+        <button id="btn-flash-plane" class="primary">Bordfirmware aufspielen</button>
+        <span style="width:18px"></span>
+        <button id="btn-build-ground">Bodenstation bauen</button>
+        <button id="btn-flash-ground">Bodenstation aufspielen</button>
+      </div>
+      <p class="tagline" style="margin-top:10px" id="bootsel-hint"></p>
+      <pre id="job-log" class="hidden"></pre>
+    </section>
+
     <div id="wiring-out"></div>
   </div>
 </main>
@@ -163,7 +178,7 @@ document.querySelectorAll('nav .tab').forEach(btn => {
       b.setAttribute('aria-selected', String(b === btn)));
     ['live', 'models', 'wiring'].forEach(name =>
       $('tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab));
-    if (btn.dataset.tab === 'wiring') loadWiring();
+    if (btn.dataset.tab === 'wiring') { loadWiring(); refreshToolchain(); }
   };
 });
 
@@ -435,6 +450,75 @@ $('btn-write').onclick = async () => {
   banner.textContent = r.ok ? 'Geschrieben: ' + r.path : r.error;
   banner.classList.remove('hidden');
 };
+
+/* ------------------------------------------------------ bauen und flashen */
+let jobTimer = null;
+
+async function refreshToolchain() {
+  const t = await fetch('/api/toolchain').then(r => r.json());
+  const banner = $('toolchain');
+  const buttons = ['btn-build-plane', 'btn-build-ground'].map($);
+
+  if (!t.local) {
+    banner.className = 'banner lock';
+    banner.textContent = 'Diese Seite ist über das Netzwerk geöffnet. Bauen und '
+      + 'Aufspielen geht nur direkt am Rechner, auf dem die Bridge läuft.';
+    banner.classList.remove('hidden');
+    document.querySelectorAll('#tab-wiring button').forEach(b => {
+      if (b.id.startsWith('btn-build') || b.id.startsWith('btn-flash')) b.disabled = true;
+    });
+    return t;
+  }
+
+  if (!t.ok) {
+    banner.className = 'banner err';
+    banner.innerHTML = 'Toolchain unvollständig: ' + esc(t.missing.join(', '))
+      + '<br><code>' + esc(t.hint) + '</code>';
+    banner.classList.remove('hidden');
+    buttons.forEach(b => b.disabled = true);
+  } else {
+    banner.classList.add('hidden');
+    buttons.forEach(b => b.disabled = false);
+  }
+
+  $('bootsel-hint').innerHTML = t.bootsel.length
+    ? `Board im Bootloader gefunden: <code>${t.bootsel.map(esc).join('</code>, <code>')}</code>`
+    : 'Kein Board im Bootloader. Die <b>Bodenstation</b> kann die UI selbst '
+      + 'zurücksetzen (1200 Baud). Der <b>Pico im Flieger</b> hat kein USB-Stdio — '
+      + 'dort BOOTSEL gedrückt halten und anstecken.';
+  return t;
+}
+
+async function startJob(kind) {
+  const model = $('wiring-model').value;
+  const r = await fetch('/api/job', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({kind, model})}).then(r => r.json());
+  const log = $('job-log');
+  log.classList.remove('hidden');
+  if (!r.ok) { log.textContent = r.error; return; }
+  log.textContent = r.name + ' …';
+  if (jobTimer) clearInterval(jobTimer);
+  jobTimer = setInterval(pollJob, 400);
+}
+
+async function pollJob() {
+  const j = await fetch('/api/job').then(r => r.json());
+  if (j.idle) return;
+  const log = $('job-log');
+  log.textContent = j.lines.join('\n');
+  log.scrollTop = log.scrollHeight;
+  if (j.done) {
+    clearInterval(jobTimer); jobTimer = null;
+    log.textContent += j.ok ? '\n\n✔ fertig' : '\n\n✘ fehlgeschlagen';
+    refreshToolchain();
+  }
+}
+
+$('btn-build-plane').onclick = () => startJob('build-plane');
+$('btn-flash-plane').onclick = () => startJob('flash-plane');
+$('btn-build-ground').onclick = () => startJob('build-ground');
+$('btn-flash-ground').onclick = () => startJob('flash-ground');
 
 /* ---------------------------------------------------------------- common */
 $('btn-blackout').onclick = () => fetch('/api/blackout', {method: 'POST',
