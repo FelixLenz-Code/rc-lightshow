@@ -1,0 +1,44 @@
+; PPM generator.
+;
+; Consumes a stream of 32 bit durations from the TX FIFO, alternating
+; mark (pin high) and space (pin low). The state machine runs at 1 MHz, so one
+; tick is one microsecond.
+;
+; Each half costs 3 cycles of fixed overhead (out, set, and the final
+; non-taken jmp), therefore the host side writes `duration_us - 3`.
+; See ppm_ticks() in ports.c.
+;
+; Output polarity is not handled here -- it is applied with
+; gpio_set_outover(), so the same program serves both positive and negative
+; shift transmitters.
+
+.program ppm
+
+.wrap_target
+    out x, 32               ; mark duration
+    set pins, 1
+mark_loop:
+    jmp x--, mark_loop
+    out x, 32               ; space duration
+    set pins, 0
+space_loop:
+    jmp x--, space_loop
+.wrap
+
+% c-sdk {
+static inline void ppm_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = ppm_program_get_default_config(offset);
+    sm_config_set_set_pins(&c, pin, 1);
+    // Autopull 32 bits; the `out x, 32` instructions stall when the FIFO runs dry.
+    sm_config_set_out_shift(&c, true, true, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    // 1 MHz -> 1 tick == 1 us.
+    sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / 1000000.0f);
+
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_pins_with_mask(pio, sm, 0, 1u << pin);
+}
+%}

@@ -1,0 +1,34 @@
+; Raw bit shifter used for SBUS.
+;
+; SBUS is 100000 baud 8E2 and inverted. Rather than teaching PIO about parity,
+; the firmware pre-renders the whole 25 byte frame into a bit array (start bit,
+; 8 data bits LSB first, even parity, two stop bits) and this program shifts it
+; out at one bit per cycle. Inversion is done with gpio_set_outover().
+;
+; When the FIFO runs dry the `out` stalls and the pin keeps its last value.
+; The frame is padded with idle (1) bits, so the line rests in the idle state
+; between frames.
+
+.program sbus_bits
+
+.wrap_target
+    out pins, 1
+.wrap
+
+% c-sdk {
+static inline void sbus_bits_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = sbus_bits_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, pin, 1);
+    sm_config_set_out_shift(&c, true, true, 32);   // shift right, autopull at 32
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    // One cycle per bit at 100 kBaud.
+    sm_config_set_clkdiv(&c, (float)clock_get_hz(clk_sys) / 100000.0f);
+
+    pio_sm_init(pio, sm, offset, &c);
+    // Idle high (becomes low at the connector once the output is inverted).
+    pio_sm_set_pins_with_mask(pio, sm, 1u << pin, 1u << pin);
+}
+%}

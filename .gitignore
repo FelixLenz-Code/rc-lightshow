@@ -1,0 +1,9 @@
+build/
+host/.venv/
+tools/ctest/build/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.uf2
+*.elf
+*.bin

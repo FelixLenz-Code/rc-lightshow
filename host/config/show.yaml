@@ -1,0 +1,100 @@
+# Show-Konfiguration fuer die Lightshow-Bridge.
+#
+#   python -m lightshow --check              Konfiguration pruefen
+#   python -m lightshow --dry-run            ohne Hardware laufen lassen
+#   python -m lightshow                      Echtbetrieb
+
+serial_port: /dev/ttyACM0
+rate_hz: 100
+
+# Name des virtuellen ALSA-MIDI-Ports, mit dem sich Ardour verbindet.
+midi_port_name: lightshow
+
+# CC >= 64 auf diesem Controller schaltet sofort alles auf Failsafe.
+# Gilt auf jedem MIDI-Kanal. null schaltet die Funktion ab.
+blackout_cc: 119
+
+# Licht spaeter ausgeben, in Millisekunden. Nur positiv moeglich --
+# um das Licht vorzuziehen, das Audio in Ardour verschieben.
+global_offset_ms: 0
+
+
+# --- Sender -----------------------------------------------------------------
+# Eine Zeile je Fernsteuerung. Hier wird auf eine andere Marke umgestellt:
+#   format:   ppm | sbus | off
+#   polarity: normal | inverted
+#             ppm normal  = positiver Shift (Ruhe low, High-Sync-Pulse)
+#             sbus normal = normales invertiertes SBUS
+#   frame_us: PPM-Framelaenge, bei SBUS der Frameabstand
+#   sync_us:  Breite des PPM-Sync-Pulses (bei SBUS ohne Bedeutung)
+#
+# ids muessen bei 0 anfangen und luecklos sein; id 0 = GPIO2, id 1 = GPIO3, ...
+
+tx_ports:
+  - id: 0
+    name: frsky_ethos
+    format: ppm
+    polarity: normal
+    nchan: 8
+    frame_us: 22500
+    sync_us: 400
+    min_us: 1000
+    max_us: 2000
+
+  # Zweiter Sender, z.B. eine aeltere Anlage mit negativem Shift:
+  # - id: 1
+  #   name: alt_negativ
+  #   format: ppm
+  #   polarity: inverted
+  #   nchan: 8
+  #   frame_us: 22500
+  #   sync_us: 300
+  #   min_us: 1000
+  #   max_us: 2000
+
+  # Serieller Trainer-Eingang, 16 Kanaele statt 8:
+  # - id: 2
+  #   name: seriell
+  #   format: sbus
+  #   polarity: normal
+  #   nchan: 16
+  #   frame_us: 7000
+  #   min_us: 1000
+  #   max_us: 2000
+
+
+# --- Modelle ----------------------------------------------------------------
+# Ein Block je Flugzeug. midi_channel ist der Kanal, den Ardour anzeigt (1..16).
+# tx_offset erlaubt mehrere Modelle an einem Sender: Modell 1 auf Kanal 1-4,
+# Modell 2 auf Kanal 5-8. Bei 16-Kanal-Ports passen so vier Modelle auf einen
+# Sender -- alle Empfaenger dazu einfach auf dasselbe Sendermodell binden.
+#
+# Kanalrollen (so interpretiert sie die Bordfirmware):
+#   cue         Effektnummer, quantisiert -- Stufe 0 heisst alles aus
+#   hue         Farbton
+#   brightness  Master-Dimmer; mit cc_lsb 14 Bit fuer ruckelfreie Fades
+#   param       Tempo bzw. zweiter Effektparameter
+#
+# quantize: Anzahl diskreter Stufen. Der Wert landet in der Mitte seiner Stufe,
+# damit ein verrauschter Kanal nie auf einer Grenze sitzt.
+
+models:
+  - name: eule
+    midi_channel: 1
+    tx_port: 0
+    tx_offset: 0
+    channels:
+      - {role: cue,        cc: 20, quantize: 32, failsafe: 1000}
+      - {role: hue,        cc: 21,               failsafe: 1500}
+      - {role: brightness, cc: 22, cc_lsb: 54,   failsafe: 1000}
+      - {role: param,      cc: 23,               failsafe: 1500}
+
+  - name: falke
+    midi_channel: 2
+    tx_port: 0
+    tx_offset: 4
+    channels:
+      - {role: cue,        cc: 20, quantize: 32, failsafe: 1000}
+      - {role: hue,        cc: 21,               failsafe: 1500}
+      - {role: brightness, cc: 22, cc_lsb: 54,   failsafe: 1000}
+      - {role: param,      cc: 23,               failsafe: 1500}
