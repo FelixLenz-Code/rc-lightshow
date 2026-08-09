@@ -73,6 +73,16 @@ class Transport:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        # Guards the stream's life cycle. Every web request runs in its own
+        # thread, so two quick clicks on play used to open two PortAudio
+        # streams; the one that lost the race was garbage collected while its
+        # audio thread was still calling into it, and PortAudio then jumped
+        # into freed memory. Opening, closing and starting are serialised here.
+        self._device_lock = threading.RLock()
+        # Streams that could not be closed cleanly are kept alive rather than
+        # collected -- a freed callback is a segfault, a leaked one is not.
+        self._retired: list = []
+        self._clock_thread: threading.Thread | None = None
         self.rate = DEFAULT_RATE
         self.mix: np.ndarray = np.zeros((0, 2), dtype=np.float32)
         self.clips: list[ClipInfo] = []
@@ -228,35 +238,55 @@ class Transport:
                 self._playing = False
 
     def _open(self) -> bool:
-        if self._stream is not None:
-            return True
-        try:
-            import sounddevice as sd
+        with self._device_lock:
+            if self._stream is not None:
+                return True
+            stream = None
+            try:
+                import sounddevice as sd
 
-            stream = sd.OutputStream(samplerate=self.rate, channels=2,
-                                     dtype="float32", blocksize=BLOCKSIZE,
-                                     callback=self._callback)
-            stream.start()
-        except Exception as exc:        # noqa: BLE001 - no device, busy, no PortAudio
-            self.device_error = str(exc)
-            return False
-        self._stream = stream
-        latency = getattr(stream, "latency", 0.0)
-        self._latency = float(latency[0] if isinstance(latency, (tuple, list))
-                              else latency or 0.0)
-        self.device_error = ""
-        return True
+                stream = sd.OutputStream(samplerate=self.rate, channels=2,
+                                         dtype="float32", blocksize=BLOCKSIZE,
+                                         callback=self._callback)
+                stream.start()
+            except Exception as exc:    # noqa: BLE001 - no device, busy, no PortAudio
+                self.device_error = str(exc)
+                if stream is not None:
+                    # Constructed but not started: close it here, otherwise the
+                    # callback would be freed while PortAudio may still hold it.
+                    self._discard(stream)
+                return False
+
+            self._stream = stream
+            latency = getattr(stream, "latency", 0.0)
+            self._latency = float(latency[0] if isinstance(latency, (tuple, list))
+                                  else latency or 0.0)
+            self.device_error = ""
+            return True
+
+    def _discard(self, stream) -> None:
+        """Closes a stream, keeping it referenced if closing failed."""
+        try:
+            stream.abort()
+            stream.close()
+        except Exception:               # noqa: BLE001
+            self._retired.append(stream)
 
     def play(self, at: float | None = None) -> None:
         if at is not None:
             self.seek(at)
-        has_device = self._open()
-        with self._lock:
-            self._playing = True
-            self._frame_at = time.monotonic()
+        with self._device_lock:
+            has_device = self._open()
+            with self._lock:
+                self._playing = True
+                self._frame_at = time.monotonic()
             if not has_device:
                 # Silent transport: the clock still runs so the lights do too.
-                threading.Thread(target=self._silent_clock, daemon=True).start()
+                # Only ever one clock thread, or time would run at double speed.
+                if self._clock_thread is None or not self._clock_thread.is_alive():
+                    self._clock_thread = threading.Thread(
+                        target=self._silent_clock, daemon=True, name="silent-clock")
+                    self._clock_thread.start()
 
     def _silent_clock(self) -> None:
         while True:
@@ -284,13 +314,10 @@ class Transport:
         # Close the stream first: a callback still in flight would otherwise
         # advance the play head again right after it was reset.
         self.pause()
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:           # noqa: BLE001
-                pass
-            self._stream = None
+        with self._device_lock:
+            stream, self._stream = self._stream, None
+            if stream is not None:
+                self._discard(stream)
         with self._lock:
             self._frame = 0
             self._frame_at = time.monotonic()

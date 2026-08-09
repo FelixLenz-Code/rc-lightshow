@@ -246,6 +246,144 @@ def test_stop_rewinds_with_a_real_device_too(project_with_tone):
     assert not transport.playing
 
 
+def test_concurrent_play_opens_only_one_stream(project_with_tone, monkeypatch):
+    """Regression: every web request is its own thread.
+
+    Two quick clicks on play used to open two PortAudio streams. The one that
+    lost the race was garbage collected while its audio thread was still
+    calling into it, and PortAudio then jumped into freed memory -- a segfault
+    a few seconds later, far away from the cause.
+    """
+    import threading as th
+
+    transport = Transport()
+    transport.load(project_with_tone)
+
+    opened = []
+
+    class FakeStream:
+        latency = 0.01
+
+        def __init__(self, **kwargs):
+            # Opening a real PortAudio stream takes milliseconds; without that
+            # delay the GIL hides the race the test is about.
+            time.sleep(0.02)
+            opened.append(self)
+            self.closed = False
+
+        def start(self):
+            pass
+
+        def abort(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    fake_sd = type("sd", (), {"OutputStream": FakeStream})
+    monkeypatch.setitem(__import__("sys").modules, "sounddevice", fake_sd)
+
+    barrier = th.Barrier(8)
+
+    def hammer():
+        barrier.wait()
+        transport.play()
+
+    threads = [th.Thread(target=hammer) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(opened) == 1, f"{len(opened)} Streams geöffnet statt einem"
+    transport.stop()
+    assert opened[0].closed
+
+
+def test_stopping_closes_the_stream_exactly_once(project_with_tone, monkeypatch):
+    import threading as th
+
+    transport = Transport()
+    transport.load(project_with_tone)
+
+    closes = []
+
+    class FakeStream:
+        latency = 0.0
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def abort(self):
+            time.sleep(0.02)
+
+        def close(self):
+            closes.append(1)
+
+    monkeypatch.setitem(__import__("sys").modules, "sounddevice",
+                        type("sd", (), {"OutputStream": FakeStream}))
+    transport.play()
+
+    barrier = th.Barrier(6)
+
+    def hammer():
+        barrier.wait()
+        transport.stop()
+
+    threads = [th.Thread(target=hammer) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(closes) == 1, f"{len(closes)}x geschlossen statt einmal"
+
+
+def test_a_stream_that_will_not_close_is_kept_alive(project_with_tone, monkeypatch):
+    """Better a leaked callback than a freed one -- freed means segfault."""
+    transport = Transport()
+    transport.load(project_with_tone)
+
+    class StubbornStream:
+        latency = 0.0
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+        def abort(self):
+            raise RuntimeError("PortAudio mag nicht")
+
+        def close(self):
+            raise RuntimeError("PortAudio mag nicht")
+
+    monkeypatch.setitem(__import__("sys").modules, "sounddevice",
+                        type("sd", (), {"OutputStream": StubbornStream}))
+    transport.play()
+    transport.stop()
+    assert len(transport._retired) == 1
+
+
+def test_repeated_play_does_not_stack_up_clock_threads(project_with_tone, monkeypatch):
+    """A second silent clock would make time run at double speed."""
+    monkeypatch.setattr(Transport, "_open", lambda self: False)
+    transport = Transport()
+    transport.load(project_with_tone)
+
+    for _ in range(5):
+        transport.play()
+    time.sleep(0.4)
+    position = transport.position()
+    transport.pause()
+
+    assert 0.2 < position < 0.8, f"Uhr lief mit {position} s -- mehrere Clock-Threads?"
+
+
 def test_state_reports_a_missing_device_instead_of_pretending(project_with_tone,
                                                               monkeypatch):
     transport = Transport()
