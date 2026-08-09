@@ -9,7 +9,8 @@ PICO    := ../../firmware/pico/src
 PLANE   := ../../firmware/plane/src
 BUILD   := build
 
-BINARIES := $(BUILD)/frame_decoder $(BUILD)/rc_decoder $(BUILD)/ppm_dump
+BINARIES := $(BUILD)/frame_decoder $(BUILD)/rc_decoder $(BUILD)/ppm_dump \
+            $(BUILD)/relay_sim
 
 all: $(BINARIES)
 
@@ -24,6 +25,9 @@ $(BUILD)/rc_decoder: rc_decoder.c | $(BUILD)
 
 $(BUILD)/ppm_dump: ppm_dump.c | $(BUILD)
 	$(CC) $(CFLAGS) -I$(PICO) -o $@ $^
+
+$(BUILD)/relay_sim: relay_sim.c | $(BUILD)
+	$(CC) $(CFLAGS) -I$(PLANE) -o $@ $^
 
 clean:
 	rm -rf $(BUILD)

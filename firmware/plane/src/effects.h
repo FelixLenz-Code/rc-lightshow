@@ -24,8 +24,9 @@ void effects_render(const show_state_t *state, uint32_t now_ms,
 // Shown when the RC link is gone: a slow amber pulse, distinct from any cue.
 void effects_render_failsafe(uint32_t now_ms, rgb_t *pixels, uint16_t count);
 
-// Stamps the navigation lights on top. Always called, whatever the show does.
-void effects_apply_nav(rgb_t *pixels, uint16_t count);
+// Gamma 2.2 lookup. The output stage uses it for the navigation lights so they
+// sit on the same curve as everything else.
+uint8_t effects_gamma(uint8_t value);
 
 // Number of effects that are actually implemented; higher cue values fall back
 // to a steady colour rather than doing nothing.

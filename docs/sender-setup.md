@@ -76,7 +76,8 @@ Pulsbreite und Framelänge ablesen.
 
 16 Kanäle geteilt durch vier Kanäle je Modell ergibt vier Modelle pro Sender.
 Alle Empfänger auf dasselbe Sendermodell binden, dann bekommt jeder alle
-Kanäle und die Bordfirmware greift sich über `RC_BASE_CHANNEL` ihren Block.
+Kanäle und die Bordfirmware greift sich über das `base_channel` ihrer Zone den
+passenden Block.
 
 ```yaml
 tx_ports:
@@ -90,8 +91,13 @@ models:
   - {name: milan, midi_channel: 4, tx_port: 0, tx_offset: 12, channels: [...]}
 ```
 
-Dazu in `firmware/plane/src/config.h` je Modell `RC_BASE_CHANNEL` auf
-`tx_offset + 1` setzen — also 1, 5, 9, 13.
+Dazu in `firmware/plane/src/config.h` je Modell das `base_channel` der Zone auf
+`tx_offset + 1` setzen — also 1, 5, 9, 13:
+
+```c
+#define ZONE_COUNT 1
+#define ZONES { {9}, }   // Bussard: Kanäle 9..12
+```
 
 Mit PPM statt SBUS gilt dasselbe, aber ein 16-Kanal-PPM-Frame braucht
 mindestens `frame_us: 35400`; die Konfigurationsprüfung sagt das auch.

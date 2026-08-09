@@ -6,14 +6,6 @@
 
 #include "config.h"
 
-typedef struct {
-    uint16_t index;
-    uint8_t r, g, b;
-} nav_light_t;
-
-#if NAV_COUNT > 0
-static const nav_light_t s_nav[] = NAV_LIGHTS;
-#endif
 static uint8_t s_gamma[256];
 static uint32_t s_rand = 0x12345678;
 
@@ -183,20 +175,8 @@ void effects_render_failsafe(uint32_t now_ms, rgb_t *pixels, uint16_t count) {
     finish(pixels, count, 96);
 }
 
-void effects_apply_nav(rgb_t *pixels, uint16_t count) {
-#if NAV_COUNT > 0
-    for (uint16_t i = 0; i < sizeof(s_nav) / sizeof(s_nav[0]); i++) {
-        if (s_nav[i].index >= count) continue;
-        pixels[s_nav[i].index] = (rgb_t){
-            s_gamma[scale8(s_nav[i].r, MAX_BRIGHTNESS)],
-            s_gamma[scale8(s_nav[i].g, MAX_BRIGHTNESS)],
-            s_gamma[scale8(s_nav[i].b, MAX_BRIGHTNESS)],
-        };
-    }
-#else
-    (void)pixels;
-    (void)count;
-#endif
+uint8_t effects_gamma(uint8_t value) {
+    return s_gamma[scale8(value, MAX_BRIGHTNESS)];
 }
 
 uint8_t effects_count(void) { return EFFECT_COUNT; }

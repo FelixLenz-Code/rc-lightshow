@@ -60,8 +60,8 @@ Vollständige Effektliste: [`docs/cues.md`](docs/cues.md).
 
 Vier Kanäle je Modell bedeutet: ein 16-Kanal-Sender trägt **vier Modelle**. Alle
 Empfänger auf dasselbe Sendermodell binden, jedes Modell greift sich über
-`RC_BASE_CHANNEL` seinen Kanalblock. Acht Modelle brauchen also zwei Sender,
-nicht acht.
+`base_channel` seiner Zone den passenden Kanalblock. Acht Modelle brauchen also
+zwei Sender, nicht acht.
 
 ---
 
@@ -71,7 +71,7 @@ nicht acht.
 
 - Bridge läuft, end-to-end mit echtem ALSA-MIDI geprüft
 - Beide Firmwares kompilieren warnungsfrei (`-Wall -Wextra` auf den eigenen Targets)
-- 50 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
+- 64 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
   Protokolls und eine Verifikation der PPM-Timing-Rechnung
 
 **Nie auf echter Hardware gelaufen.** Ungetestet ist damit alles Physische: das
@@ -121,8 +121,9 @@ RP2040-Zero (2,4 g statt ~3 g): `-DPICO_BOARD=waveshare_rp2040_zero`.
 | GPIO   | Funktion                                  |
 |--------|-------------------------------------------|
 | 0 / 1  | Debug-UART                                |
-| 2      | WS2812-Daten, über 74AHCT125 Pegelwandler |
+| 2, 3   | WS2812-Daten, ein Pin je Strip            |
 | 5      | SBUS vom Empfänger                        |
+| 6, 7   | Relais-Ausgänge                           |
 | 10–13  | PWM-Eingänge, Fallback ohne SBUS          |
 
 Versorgung über **VSYS (Pin 39)** und GND (Pin 38) vom UBEC, nicht über VBUS —
@@ -131,8 +132,58 @@ so stört ein gleichzeitig gestecktes USB-Kabel beim Einrichten nicht.
 SBUS wird bevorzugt, PWM automatisch genutzt, wenn keine SBUS-Frames ankommen.
 Beides läuft gleichzeitig, es gibt keinen Umschalter.
 
-Der Pegelwandler ist **nicht optional**: 3,3 V Datenpegel an einem 5-V-Streifen
-funktioniert mal und setzt mal aus, gern erst in der Luft.
+Der Pegelwandler vor den LED-Strips ist **nicht optional**: 3,3 V Datenpegel an
+einem 5-V-Streifen funktioniert mal und setzt mal aus, gern erst in der Luft.
+Relais brauchen ebenfalls eine Treiberstufe — ein GPIO kann keine Spule
+schalten. Schaltbilder in [`hardware/README.md`](hardware/README.md).
+
+### Ausgänge je Modell konfigurieren
+
+`firmware/plane/src/config.h` beschreibt die Ausgangsstufe als drei Tabellen:
+bis zu **8 WS2812-Strips** und **8 Relais**, gruppiert in **Zonen**. Nur diese
+Datei wird je Modell angefasst.
+
+```c
+#define STRIP_COUNT 2
+#define STRIPS { \
+    /* pin, count, zone, offset, reverse */              \
+    /* linke Fläche, läuft nach außen  */ {2, 30, 0, 0, false}, \
+    /* rechte Fläche, gespiegelt       */ {3, 30, 0, 0, true},  \
+}
+
+#define RELAY_COUNT 2
+#define RELAYS { \
+    /* pin, zone, source, arg, threshold, active_low, min_on, min_off */ \
+    /* Scheinwerfer, MOSFET, blitzt im Takt   */ {6, 0, RELAY_SRC_PIXEL, 0, 64, false,   0,   0}, \
+    /* Rauch, Relaismodul, ab Cue 5           */ {7, 0, RELAY_SRC_CUE,   5,  0, true,  200, 200}, \
+}
+```
+
+**Zonen** bündeln Ausgänge, die denselben Effekt zeigen. Eine Zone belegt vier
+RC-Kanäle. Zwei Zonen heißen: Flächen und Rumpf laufen unabhängig, kosten aber
+acht Kanäle.
+
+**`offset`** bestimmt, wie Strips zusammenspielen: gleicher Offset spiegelt sie,
+fortlaufende Offsets machen aus mehreren Strips eine lange virtuelle Kette, über
+die ein Lauflicht durchläuft. **`reverse`** dreht einen verkehrt herum
+eingebauten Strip um, damit ein Lauflicht auf beiden Flächen wirklich nach außen
+läuft.
+
+**Relais-Quellen** — was ein Relais schalten lässt:
+
+| Quelle                 | Verhalten                                              |
+|------------------------|--------------------------------------------------------|
+| `RELAY_SRC_PIXEL`      | folgt einem Pixel der Zone, blitzt exakt mit dem Effekt |
+| `RELAY_SRC_BRIGHTNESS` | an, solange der Master-Dimmer über der Schwelle liegt   |
+| `RELAY_SRC_CUE`        | an ab Cue `arg`                                        |
+| `RELAY_SRC_CHANNEL`    | an über einen eigenen RC-Kanal                         |
+
+Nur `RELAY_SRC_CHANNEL` kostet einen zusätzlichen Kanal; die anderen drei werden
+aus der Effekt-Engine abgeleitet. Cue 0 schaltet immer alle Relais ab.
+
+`min_on_ms` / `min_off_ms` erlauben den Mischbetrieb: **0** für MOSFETs, die
+jedem Blitzmuster folgen, **~200** für mechanische Relais — die hängen dann am
+selben Effekt, schalten aber nur so oft, wie sie es überleben.
 
 ---
 
@@ -327,16 +378,23 @@ Trainer-Kanäle jetzt **ausschließlich auf die Lichtkanäle** mischen.
 
 ### Stufe 5 — Modell
 
-Bordfirmware flashen, `config.h` an das Modell anpassen (`LED_COUNT`,
-`RC_BASE_CHANNEL`, Positionslichter). Empfänger und LED-Streifen auf dem Tisch
-aufbauen, eigenes UBEC für die LEDs.
+Bordfirmware flashen, `config.h` an das Modell anpassen: Zonen, Strips, Relais,
+Positionslichter. Empfänger und LED-Streifen auf dem Tisch aufbauen, eigenes
+UBEC für die LEDs.
+
+**Relais zuerst ohne Last testen** — nur der Treiber, die geschaltete Leitung
+noch nicht angeschlossen. Ein falsch gesetztes `active_low` schaltet sonst beim
+Einschalten sofort durch, und bei einem Rauchsystem oder einem Scheinwerfer auf
+der Werkbank ist das kein guter Moment, das zu merken.
 
 *Erwartet:* Positionslichter leuchten sofort und dauerhaft. Cue-Wechsel in
-Ardour ändern den Effekt, `brightness` dimmt weich.
+Ardour ändern den Effekt, `brightness` dimmt weich. Relais schalten gemäß ihrer
+Quelle; bei Cue 0 fallen alle ab.
 
 *Failsafe prüfen:* Sender ausschalten. Nach 500 ms muss das Modell auf langsames
-bernsteinfarbenes Pulsen umschalten. Diese Farbe kommt in keinem Cue vor — du
-siehst also im Flug sofort, welches Modell die Verbindung verloren hat.
+bernsteinfarbenes Pulsen umschalten und **alle Relais müssen abfallen**. Die
+Farbe kommt in keinem Cue vor — du siehst im Flug sofort, welches Modell die
+Verbindung verloren hat.
 
 Danach: komplettes Musikstück auf dem Tisch durchlaufen lassen, erst dann ein
 Modell im Flug, dann skalieren.
@@ -351,7 +409,7 @@ Modell im Flug, dann skalieren.
 cd host && ./.venv/bin/python -m pytest tests -v
 ```
 
-50 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
+64 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
 `tools/ctest/` kompiliert die **echten** Firmware-Quellen für den PC und prüft
 sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 
@@ -362,8 +420,9 @@ sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 | `test_mapping.py`      | MIDI → Mikrosekunden, 14 Bit, Invertierung, Blackout, Panic   |
 | `test_cross_check.py`  | C-Parser gegen Python-Encoder: CRC, Byte-Reihenfolge, Resync  |
 | `test_ppm_frame.py`    | PPM-Timing aus dem echten Frame-Builder rekonstruiert         |
+| `test_relay_logic.py`  | Relais-Quellen und Mindestschaltzeiten der Bordfirmware       |
 
-Zwei davon lohnen eine Erklärung:
+Drei davon lohnen eine Erklärung:
 
 **`test_ppm_frame.py`** rechnet die tatsächlichen Pulslängen zurück. Das
 PIO-Programm verbraucht drei feste Takte je Halbwelle, der Puffer enthält also
@@ -375,6 +434,12 @@ Mindest-Sync-Lücke.
 **`test_cross_check.py`** prüft unter anderem, dass jeder Cue-Schritt den
 Rundweg übersteht: was die Bridge kodiert, muss die Bordfirmware als denselben
 Schritt dekodieren — auch mit ±13 µs Störung auf dem Kanal.
+
+**`test_relay_logic.py`** simuliert ein 10-Hz-Strobe über drei Sekunden und
+prüft, dass ein mechanisches Relais dabei nie schneller schaltet als erlaubt,
+aber trotzdem noch blinkt statt in einem Zustand hängenzubleiben. Dazu die
+Sonderfälle: Cue 0 schaltet jede Quelle ab, und ein Aussetzer, der kürzer ist
+als die Mindestzeit, wird nicht nachträglich durchgereicht.
 
 Die C-Werkzeuge einzeln bauen:
 
@@ -391,7 +456,8 @@ make -C tools/ctest
 | Konfiguration gültig    | `python -m lightshow --check`                              |
 | PPM-Signal korrekt      | Jumper GPIO2 → GPIO10, `SELFTEST`-Zeile lesen              |
 | Failsafe Bodenstation   | USB im Betrieb abziehen → Ausgänge binnen 250 ms auf Failsafe |
-| Failsafe Modell         | Sender ausschalten → nach 500 ms bernsteinfarbenes Pulsen  |
+| Failsafe Modell         | Sender ausschalten → nach 500 ms bernsteinfarbenes Pulsen, alle Relais fallen ab |
+| Relais am Boden prüfen  | Cue auf 0 stellen → jedes Relais muss abfallen             |
 
 ---
 
@@ -441,6 +507,10 @@ USB-Isolator zwischen PC und Pico.
   Blendwirkung.
 - Zwei unabhängige Failsafes: Host weg → Ausgänge nach 250 ms auf Failsafe;
   Funk weg → Modell nach 500 ms auf ein Muster, das in keinem Cue vorkommt.
+- **Relais fallen bei Funkausfall sofort ab**, ohne Rücksicht auf
+  Mindestschaltzeiten. Beim Booten werden die Pins auf den Aus-Pegel getrieben,
+  bevor sonst etwas läuft — ein Relaisboard klickt also nicht beim Einschalten
+  an. Prüf `active_low` trotzdem ohne angeschlossene Last.
 - Alle Tests bis Stufe 4 ohne Propeller.
 - Nachtflug: EU-Drohnen-VO und Auflagen des Vereins vorab klären.
 
@@ -453,15 +523,16 @@ USB-Isolator zwischen PC und Pico.
 | `host/lightshow/` | Bridge: `config`, `mapping`, `midi`, `link`, `monitor`      |
 | `host/tests/`     | Testsuite, inklusive der Kreuzprüfungen gegen die Firmware  |
 | `firmware/pico/`  | Bodenstation: PPM/SBUS über PIO und DMA, Selbsttest         |
-| `firmware/plane/` | Bordcontroller: RC-Eingang, Effekt-Engine, WS2812           |
+| `firmware/plane/` | Bordcontroller: RC-Eingang, Effekt-Engine, Strips, Relais   |
 | `tools/ctest/`    | Firmware-Logik nativ kompiliert, für die Tests              |
 | `docs/`           | Ardour-Setup, Sender-Setup, Cue-Liste                       |
 | `hardware/`       | Pinbelegung, Pegel, Stückliste, Strombudget                 |
 
-Zwei Header sind bewusst frei von SDK-Abhängigkeiten, damit ihre Rechnungen auf
-dem PC prüfbar sind: `firmware/pico/src/ppm_frame.h` (Frame-Timing) und
-`firmware/plane/src/rc_decode.h` (Kanaldekodierung). Genau diese beiden
-enthalten die Logik, deren Fehler am Oszilloskop am teuersten wären.
+Drei Header sind bewusst frei von SDK-Abhängigkeiten, damit ihre Rechnungen auf
+dem PC prüfbar sind: `firmware/pico/src/ppm_frame.h` (Frame-Timing),
+`firmware/plane/src/rc_decode.h` (Kanaldekodierung) und
+`firmware/plane/src/relay_logic.h` (Relais-Entscheidung und Schaltzeiten). Genau
+dort steckt die Logik, deren Fehler in der Luft am teuersten wären.
 
 Das Wire-Protokoll ist an einer Stelle beschrieben:
 `firmware/pico/src/protocol.h`. `host/lightshow/protocol.py` ist dessen

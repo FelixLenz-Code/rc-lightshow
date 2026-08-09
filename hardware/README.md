@@ -105,10 +105,15 @@ Der LED-Streifen bekommt seine 5 V **direkt vom UBEC**, nicht über den Pico.
 | GPIO   | Funktion                                    |
 |--------|---------------------------------------------|
 | 0 / 1  | Debug-UART (Konsolenausgabe)                |
-| 2      | WS2812-Daten (über Pegelwandler)            |
+| 2, 3   | WS2812-Daten, ein Pin je Strip              |
 | 5      | SBUS vom Empfänger (UART1 RX, invertiert)   |
+| 6, 7   | Relais-Ausgänge                             |
 | 10–13  | PWM-Eingänge, Fallback ohne SBUS            |
 | 39/38  | VSYS / GND vom UBEC                         |
+
+Das ist die Vorgabe in `config.h`. Strips, Relais und Zonen stehen dort als
+Tabellen — bis zu 8 Strips (je eine PIO-State-Machine) und 8 Relais, jedes
+Modell so, wie es gebraucht wird.
 
 SBUS wird bevorzugt: eine Leitung, alle 16 Kanäle, und mehrere Modelle können
 sich einen Sender teilen. Die PWM-Eingänge werden nur benutzt, wenn keine
@@ -117,7 +122,8 @@ SBUS-Frames ankommen — beides ist gleichzeitig aktiv, ein Umschalter entfällt
 ### WS2812-Beschaltung
 
 ```
-GPIO0 ──▶ 74AHCT125 ──[ 330R ]──▶ DIN
+GPIO2 ──▶ 74AHCT125 ──[ 330R ]──▶ DIN Strip 1
+GPIO3 ──▶ 74AHCT125 ──[ 330R ]──▶ DIN Strip 2
 5V ──┬── LED-Streifen +5V
      └── 1000 µF ── GND
 ```
@@ -125,6 +131,47 @@ GPIO0 ──▶ 74AHCT125 ──[ 330R ]──▶ DIN
 Der Pegelwandler ist nicht optional: 3,3 V Datenpegel an einem 5-V-Streifen
 läuft mal und setzt mal aus, gern erst in der Luft. Der 330-Ω-Widerstand
 schützt die erste LED, der Elko fängt Einschaltspitzen ab.
+
+Ein 74AHCT125 enthält vier Treiber, versorgt aus 5 V — er reicht also für vier
+Strips.
+
+### Relais-Ausgänge
+
+Ein GPIO kann **kein** Relais direkt treiben: 3,3 V bei wenigen Milliampere
+gegen eine Spule, die 5 V und 70 mA will. Es braucht immer eine Treiberstufe.
+
+**MOSFET** — die Wahl für alles, was im Takt schaltet:
+
+```
+GPIO ──[ 100R ]──┬── Gate   IRLML2502 / AO3400 (Logic Level!)
+                 │
+             [ 100k ]
+                 │
+GND ─────────────┴── Source        Drain ──▶ Last ──▶ +V
+```
+
+Der 100-kΩ-Widerstand zieht das Gate beim Booten sicher auf Masse, solange der
+Pin noch hochohmig ist. „Logic Level" ist zwingend: ein normaler MOSFET
+schaltet bei 3,3 V Gate-Spannung nicht durch, sondern wird heiß. Für induktive
+Lasten zusätzlich eine Freilaufdiode über die Last.
+
+**Fertiges Relaismodul** — direkt an den GPIO, aber `active_low: true` in
+`config.h` setzen: die üblichen optogekoppelten Module schalten bei Low ein.
+Versorgung des Moduls aus 5 V, **nicht** aus dem 3,3-V-Pin des Pico.
+
+| | MOSFET | Relaismodul |
+|---|---|---|
+| Gewicht je Kanal | ~1 g | 10–15 g |
+| Schaltzeit | µs | 5–10 ms |
+| Blitzen möglich | ja | nein |
+| Geräusch | keins | klackert |
+| Lebensdauer | praktisch unbegrenzt | einige 100 000 Schaltspiele |
+| Potentialfrei | nein | ja |
+
+Wenn du beides mischst, setz bei den mechanischen Kanälen
+`min_on_ms`/`min_off_ms` auf etwa 200. Das Relais folgt dann demselben Effekt,
+schaltet aber nur so oft, wie es verträgt — statt sich an einem Strobe zu
+zerlegen.
 
 ### Strombudget
 
@@ -142,10 +189,16 @@ den Spitzenstrom und gleichzeitig die Blendwirkung für den Piloten.
 
 ### Stückliste je Modell
 
-| Teil                        | Menge | ca. Preis |
-|-----------------------------|-------|-----------|
-| Raspberry Pi Pico           | 1     | 5 €       |
-| 74AHCT125                   | 1     | 0,50 €    |
-| WS2812-Streifen 60 LED      | 1     | 10 €      |
-| UBEC 5 V / 3 A              | 1     | 6 €       |
-| 1000 µF / 10 V, 330 Ω       | 1     | —         |
+| Teil                              | Menge     | ca. Preis |
+|-----------------------------------|-----------|-----------|
+| Raspberry Pi Pico                 | 1         | 5 €       |
+| 74AHCT125 (4 Strips je Baustein)  | 1         | 0,50 €    |
+| WS2812-Streifen 60 LED            | 1–8       | 10 €      |
+| UBEC 5 V / 3 A                    | 1         | 6 €       |
+| 1000 µF / 10 V, 330 Ω je Strip    | 1         | —         |
+| IRLML2502 + 100 R + 100 k je MOSFET-Kanal | 0–8 | 0,30 €    |
+| Relaismodul je mechanischem Kanal | 0–8       | 2 €       |
+
+Beim Strombudget die Relais-Lasten nicht vergessen: ein Landescheinwerfer zieht
+schnell mehr als der ganze LED-Streifen. Die geschalteten Lasten hängen direkt
+am Akku oder an einem eigenen UBEC, nicht am 5-V-Zweig des Controllers.

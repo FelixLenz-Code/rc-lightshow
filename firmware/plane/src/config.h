@@ -1,51 +1,33 @@
 // Per-model configuration for the airborne light controller.
 //
-// This is the file you edit for each aircraft: how many LEDs, which receiver
-// channels carry the show data, and where the navigation lights sit.
+// This is the file you edit for each aircraft. Everything else stays untouched.
 
 #ifndef PLANE_CONFIG_H
 #define PLANE_CONFIG_H
 
-// ---------------------------------------------------------------- pixels ---
+#include "outputs.h"
 
-// WS2812 data, through a 74AHCT125 level shifter. Keep off GP0/GP1: those are
-// the default debug UART pins, and PIO would silently take the pin away from it.
-#define LED_PIN       2
-#define LED_COUNT     60
-#define RENDER_HZ     200   // effect update rate, independent of the RC rate
+// ---------------------------------------------------------------- general ---
+
+#define RENDER_HZ 200   // effect update rate, independent of the RC rate
 
 // Global ceiling on brightness, 0..255. Keeps the current draw and the pilot's
 // night vision in check; the show dimmer scales below this.
 #define MAX_BRIGHTNESS 200
 
-// ------------------------------------------------------- navigation lights -
+// ------------------------------------------------------------- RC input -----
 //
-// Drawn after every effect, so they are always on and always the same colour.
-// The pilot needs them to see the aircraft's attitude -- do not fold them into
-// the show. Set NAV_COUNT to 0 if this model carries separate nav lights.
-
-#define NAV_COUNT 3
-#define NAV_LIGHTS { \
-    {0,           255,   0,   0},  /* left wingtip, red   */ \
-    {LED_COUNT/2,   0, 255,   0},  /* right wingtip, green */ \
-    {LED_COUNT-1, 255, 255, 255},  /* tail, white         */ \
-}
-
-// ------------------------------------------------------------- RC input ----
-//
-// SBUS is preferred: one wire carries all 16 channels, so several models can
-// share one transmitter. PWM is the fallback for receivers without SBUS.
-// Both are read; SBUS wins whenever its frames are fresh.
+// SBUS is preferred: one wire carries all 16 channels, so up to four models can
+// share one transmitter. PWM is the fallback for receivers without SBUS. Both
+// are read; SBUS wins whenever its frames are fresh.
 
 #define SBUS_UART      uart1
 #define SBUS_RX_PIN    5
 
-// First show channel, counted from 1 as the transmitter shows it. A model at
-// tx_offset 4 in show.yaml uses RC_BASE_CHANNEL 5.
-#define RC_BASE_CHANNEL 1
-
-// Four PWM inputs, used only when no SBUS frames arrive.
-#define PWM_PINS {10, 11, 12, 13}
+// Four PWM inputs, used only when no SBUS frames arrive. They always feed
+// zone 0, whatever base_channel says -- with PWM the four wires *are* the
+// four channels.
+#define PWM_PINS  {10, 11, 12, 13}
 #define PWM_COUNT 4
 
 // Channel range, matching min_us/max_us in show.yaml.
@@ -55,7 +37,86 @@
 // Number of cue steps; must match `quantize` on the cue channel.
 #define CUE_STEPS 32
 
-// No valid RC data for this long -> failsafe pattern.
+// No valid RC data for this long -> failsafe pattern, relays off.
 #define RC_TIMEOUT_MS 500
+
+// ------------------------------------------------------------------ zones ---
+//
+// Each zone owns four consecutive RC channels: cue, hue, brightness, param.
+// base_channel is counted as the transmitter counts, starting at 1. A model at
+// tx_offset 4 in show.yaml uses base_channel 5.
+//
+// One zone is the normal case. Add a second one only if a part of the model
+// should run a different effect -- it costs another four channels.
+
+#define ZONE_COUNT 1
+#define ZONES { \
+    /* base_channel */ \
+    {1},               \
+}
+
+// ----------------------------------------------------------------- strips ---
+//
+// pin, count, zone, offset, reverse
+//
+// `offset` places the strip inside its zone's virtual chain:
+//   - same offset on two strips  -> they mirror each other
+//   - consecutive offsets        -> one long chain a chase runs across
+// `reverse` flips a strip that is mounted the other way round, so a chase
+// running outwards really runs outwards on both wings.
+//
+// Every strip needs its own PIO state machine; eight are available.
+// Data lines go through a 74AHCT125 level shifter, see hardware/README.md.
+
+#define STRIP_COUNT 2
+#define STRIPS { \
+    /* left wing, runs outward  */ {2, 30, 0,  0, false}, \
+    /* right wing, mirrored     */ {3, 30, 0,  0, true},  \
+}
+
+// ----------------------------------------------------------------- relays ---
+//
+// pin, zone, source, arg, threshold, active_low, min_on_ms, min_off_ms
+//
+// Sources:
+//   RELAY_SRC_PIXEL       follows pixel `arg` of the zone -- blinks exactly
+//                         with the effect, costs no RC channel
+//   RELAY_SRC_BRIGHTNESS  on while the master dimmer exceeds `threshold`
+//   RELAY_SRC_CUE         on from cue `arg` upwards
+//   RELAY_SRC_CHANNEL     on while RC channel `arg` exceeds `threshold`
+//
+// min_on_ms / min_off_ms:
+//   0 / 0    MOSFET or solid state -- follows any pattern
+//   50 / 50  mechanical relay -- rides on a strobe without chattering itself
+//            to death, it simply switches less often than the LEDs
+//
+// active_low: true for the usual opto-isolated relay boards, false for a
+// MOSFET driven straight from the pin.
+//
+// Cue 0 switches every relay off, regardless of its source.
+
+#define RELAY_COUNT 2
+#define RELAYS { \
+    /* landing light, MOSFET, blinks with the effect */ \
+    {6, 0, RELAY_SRC_PIXEL, 0, 64, false, 0, 0},        \
+    /* smoke system, mechanical board, from cue 5 up   */ \
+    {7, 0, RELAY_SRC_CUE,   5,  0, true, 200, 200},     \
+}
+
+// ------------------------------------------------------- navigation lights --
+//
+// strip, index, r, g, b
+//
+// Drawn on top of every effect, so they are always on and always the same
+// colour. The pilot needs them to see the aircraft's attitude -- do not fold
+// them into the show. Set NAV_COUNT to 0 if this model carries separate,
+// permanently wired navigation lights.
+
+#define NAV_COUNT 3
+#define NAV_LIGHTS { \
+    {0,  0, 255,   0,   0},  /* left wingtip, red    */ \
+    {1,  0,   0, 255,   0},  /* right wingtip, green */ \
+    {0, 29, 255, 255, 255},  /* tail, white          */ \
+}
 
 #endif // PLANE_CONFIG_H
