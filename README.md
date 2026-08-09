@@ -20,15 +20,16 @@ Ardour ──MIDI──▶ host/ ──USB──▶ firmware/pico/ ──Klinke�
 
 1. [Konzept](#konzept)
 2. [Stand des Projekts](#stand-des-projekts)
-3. [Hardware](#hardware)
-4. [Installation](#installation)
-5. [Konfiguration](#konfiguration)
-6. [Ardour](#ardour)
-7. [Inbetriebnahme in fünf Stufen](#inbetriebnahme-in-fünf-stufen)
-8. [Testverfahren](#testverfahren)
-9. [Fehlersuche](#fehlersuche)
-10. [Sicherheit](#sicherheit)
-11. [Aufbau des Codes](#aufbau-des-codes)
+3. [Bedienoberfläche](#bedienoberfläche)
+4. [Hardware](#hardware)
+5. [Installation](#installation)
+6. [Konfiguration](#konfiguration)
+7. [Ardour](#ardour)
+8. [Inbetriebnahme in fünf Stufen](#inbetriebnahme-in-fünf-stufen)
+9. [Testverfahren](#testverfahren)
+10. [Fehlersuche](#fehlersuche)
+11. [Sicherheit](#sicherheit)
+12. [Aufbau des Codes](#aufbau-des-codes)
 
 ---
 
@@ -71,14 +72,68 @@ zwei Sender, nicht acht.
 
 - Bridge läuft, end-to-end mit echtem ALSA-MIDI geprüft
 - Beide Firmwares kompilieren warnungsfrei (`-Wall -Wextra` auf den eigenen Targets)
-- 64 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
-  Protokolls und eine Verifikation der PPM-Timing-Rechnung
+- Web-UI mit Live-Status, Modelleditor und Anschlussübersicht
+- 78 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
+  Protokolls, eine Verifikation der PPM-Timing-Rechnung und ein Compiler-Lauf
+  über die generierte Bordkonfiguration
 
 **Nie auf echter Hardware gelaufen.** Ungetestet ist damit alles Physische: das
 Signal an der Trainer-Buchse, der komplette SBUS-Pfad, die LEDs, das
 Strombudget, die Ethos-Menüführung. Die Reihenfolge unter
 [Inbetriebnahme](#inbetriebnahme-in-fünf-stufen) ist genau darauf ausgelegt,
 diese Unsicherheiten einzeln aufzulösen.
+
+---
+
+## Bedienoberfläche
+
+Die Bridge bringt eine lokale Web-UI mit. Sie startet automatisch mit:
+
+```bash
+cd host && ./.venv/bin/python -m lightshow
+# web interface: http://127.0.0.1:8765/
+```
+
+Sie braucht keine zusätzlichen Pakete — reine Python-Bordmittel. Mit
+`--web-host 0.0.0.0` ist sie auch vom Handy im selben WLAN erreichbar,
+`--no-web` schaltet sie ab.
+
+**Live** — ob die DAW verbunden ist (über `aconnect` ausgelesen, also die echte
+Verbindung, nicht nur „es kommt was an"), ob der Pico hängt, und was auf jedem
+Kanal ankommt: Mikrosekunden, Pegelbalken und der dekodierte Wert. Bei
+`cue` steht dort die erkannte Stufe, sonst der Prozentwert. Kanäle, auf denen
+noch nichts kam, sind als Failsafe markiert.
+
+**Modelle** — LED-Strips, Relais und Positionslichter je Modell anlegen und
+bearbeiten. Beim Speichern läuft dieselbe Prüfung wie beim Start, Fehler kommen
+im Klartext zurück („GPIO 5 wird von SBUS und Strip 'flaeche_links' benutzt").
+Die Vorversion bleibt als `show.yaml.bak` liegen.
+
+> Solange MIDI hereinkommt, ist die Bearbeitung **gesperrt**. Zum Ändern die
+> Wiedergabe in der DAW stoppen. Das verhindert, dass sich die Zuordnung mitten
+> in einer Show verschiebt.
+
+**Anschluss** — je Modell eine Tabelle, wo was an den Pico im Flieger kommt,
+inklusive **physischer Pinnummer** auf der Platine, dazu der geschätzte
+LED-Strom und die fertige `config.h`. Ein Knopf schreibt sie nach
+`firmware/plane/generated/<modell>.h`.
+
+### Warum die Bordkonfiguration generiert wird
+
+Zum Flieger führt kein Datenweg außer den RC-Kanälen — man kann ihn nicht zur
+Laufzeit umkonfigurieren. Deshalb ist die Modelldefinition in `show.yaml` die
+einzige Quelle, und daraus entsteht der Header, mit dem die Bordfirmware
+übersetzt wird:
+
+```bash
+cd host && ./.venv/bin/python -m lightshow --generate eule
+cmake -S firmware/plane -B build/plane-eule -DPLANE_CONFIG=generated/eule.h
+cmake --build build/plane-eule -j4
+```
+
+Ohne `-DPLANE_CONFIG` baut das dokumentierte Beispiel aus `src/config.h`. Nach
+jeder Änderung an den Ausgängen eines Modells muss dessen Firmware neu
+generiert und geflasht werden — die Bridge allein reicht nicht.
 
 ---
 
@@ -409,7 +464,7 @@ Modell im Flug, dann skalieren.
 cd host && ./.venv/bin/python -m pytest tests -v
 ```
 
-64 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
+78 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
 `tools/ctest/` kompiliert die **echten** Firmware-Quellen für den PC und prüft
 sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 
@@ -421,6 +476,7 @@ sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 | `test_cross_check.py`  | C-Parser gegen Python-Encoder: CRC, Byte-Reihenfolge, Resync  |
 | `test_ppm_frame.py`    | PPM-Timing aus dem echten Frame-Builder rekonstruiert         |
 | `test_relay_logic.py`  | Relais-Quellen und Mindestschaltzeiten der Bordfirmware       |
+| `test_planegen.py`     | generierte Bordkonfiguration, Anschlussliste, YAML-Roundtrip  |
 
 Drei davon lohnen eine Erklärung:
 
@@ -454,6 +510,7 @@ make -C tools/ctest
 | MIDI kommt an           | `aconnect -l \| grep lightshow`, dann `aseqdump -p lightshow` |
 | Mapping stimmt          | `python -m lightshow --dry-run`                            |
 | Konfiguration gültig    | `python -m lightshow --check`                              |
+| UI erreichbar           | Bridge starten, `http://127.0.0.1:8765/` öffnen            |
 | PPM-Signal korrekt      | Jumper GPIO2 → GPIO10, `SELFTEST`-Zeile lesen              |
 | Failsafe Bodenstation   | USB im Betrieb abziehen → Ausgänge binnen 250 ms auf Failsafe |
 | Failsafe Modell         | Sender ausschalten → nach 500 ms bernsteinfarbenes Pulsen, alle Relais fallen ab |
@@ -520,7 +577,7 @@ USB-Isolator zwischen PC und Pico.
 
 | Pfad              | Inhalt                                                     |
 |-------------------|------------------------------------------------------------|
-| `host/lightshow/` | Bridge: `config`, `mapping`, `midi`, `link`, `monitor`      |
+| `host/lightshow/` | Bridge: `config`, `mapping`, `midi`, `link`, `monitor`, `webui`, `planegen` |
 | `host/tests/`     | Testsuite, inklusive der Kreuzprüfungen gegen die Firmware  |
 | `firmware/pico/`  | Bodenstation: PPM/SBUS über PIO und DMA, Selbsttest         |
 | `firmware/plane/` | Bordcontroller: RC-Eingang, Effekt-Engine, Strips, Relais   |

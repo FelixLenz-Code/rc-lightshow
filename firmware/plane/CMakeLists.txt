@@ -24,7 +24,18 @@ add_executable(lightshow_plane
 
 pico_generate_pio_header(lightshow_plane ${CMAKE_CURRENT_LIST_DIR}/src/ws2812.pio)
 
-target_include_directories(lightshow_plane PRIVATE src)
+target_include_directories(lightshow_plane PRIVATE src ${CMAKE_CURRENT_LIST_DIR})
+
+# Per-model header generated from show.yaml, e.g.
+#   cmake -S firmware/plane -B build/plane-eule -DPLANE_CONFIG=generated/eule.h
+# Without it, the documented example in src/config.h is used.
+if(DEFINED PLANE_CONFIG)
+    target_compile_definitions(lightshow_plane PRIVATE
+        PLANE_CONFIG_HEADER="${PLANE_CONFIG}")
+    message(STATUS "Plane configuration: ${PLANE_CONFIG}")
+else()
+    message(STATUS "Plane configuration: built-in example from src/config.h")
+endif()
 
 # Our own sources only -- the SDK is not warning clean and is not our business.
 target_compile_options(lightshow_plane PRIVATE -Wall -Wextra)

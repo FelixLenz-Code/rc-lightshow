@@ -42,6 +42,70 @@ class PortCfg:
     max_us: int = 2000
 
 
+# GPIOs a Raspberry Pi Pico brings out on its header. 23, 24 and 25 are wired to
+# the on-board regulator, USB sensing and the LED; 29 measures VSYS.
+PICO_USABLE_GPIO = set(range(0, 23)) | {26, 27, 28}
+
+# GPIO number -> physical pin on the Pico header, so the wiring overview can
+# name the pin you actually have to solder to.
+PICO_PHYSICAL_PIN = {
+    0: 1, 1: 2, 2: 4, 3: 5, 4: 6, 5: 7, 6: 9, 7: 10, 8: 11, 9: 12,
+    10: 14, 11: 15, 12: 16, 13: 17, 14: 19, 15: 20, 16: 21, 17: 22,
+    18: 24, 19: 25, 20: 26, 21: 27, 22: 29, 26: 31, 27: 32, 28: 34,
+}
+
+RELAY_SOURCES = ("pixel", "brightness", "cue", "channel")
+
+MAX_STRIPS = 8      # one PIO state machine each
+MAX_RELAYS = 8
+MAX_ZONE_PIXELS = 256
+CHANNELS_PER_ZONE = 4
+
+
+@dataclass
+class StripCfg:
+    name: str
+    pin: int
+    count: int
+    zone: int = 0
+    offset: int = 0        # position inside the zone's virtual chain
+    reverse: bool = False
+
+
+@dataclass
+class RelayCfg:
+    name: str
+    pin: int
+    zone: int = 0
+    source: str = "pixel"  # one of RELAY_SOURCES
+    arg: int = 0
+    threshold: int = 64
+    active_low: bool = False
+    min_on_ms: int = 0     # 0 for MOSFETs, ~200 for mechanical relays
+    min_off_ms: int = 0
+
+
+@dataclass
+class NavLightCfg:
+    strip: int
+    index: int
+    color: tuple[int, int, int] = (255, 255, 255)
+
+
+@dataclass
+class PlaneCfg:
+    """Everything the airborne controller needs; generated into a config.h."""
+
+    board: str = "pico"
+    sbus_pin: int = 5
+    pwm_pins: list[int] = field(default_factory=lambda: [10, 11, 12, 13])
+    max_brightness: int = 200
+    render_hz: int = 200
+    strips: list[StripCfg] = field(default_factory=list)
+    relays: list[RelayCfg] = field(default_factory=list)
+    nav_lights: list[NavLightCfg] = field(default_factory=list)
+
+
 @dataclass
 class ModelCfg:
     name: str
@@ -49,6 +113,16 @@ class ModelCfg:
     tx_port: int
     tx_offset: int = 0             # first port channel this model occupies
     channels: list[ChannelCfg] = field(default_factory=list)
+    plane: PlaneCfg | None = None
+
+    @property
+    def zone_count(self) -> int:
+        """One zone per group of four channels."""
+        return max(1, len(self.channels) // CHANNELS_PER_ZONE)
+
+    def zone_base_channel(self, zone: int) -> int:
+        """First RC channel of a zone, counted as the transmitter counts."""
+        return self.tx_offset + zone * CHANNELS_PER_ZONE + 1
 
 
 @dataclass
@@ -124,6 +198,148 @@ def _parse_channel(data: dict[str, Any], where: str, port: PortCfg) -> ChannelCf
             f"{port.min_us}..{port.max_us}"
         )
     return channel
+
+
+def _check_gpio(pin: int, where: str, what: str) -> None:
+    if pin not in PICO_USABLE_GPIO:
+        raise ConfigError(
+            f"{where}: GPIO {pin} for {what} is not on the Pico header "
+            f"(usable: 0-22 and 26-28)"
+        )
+
+
+def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
+    plane = PlaneCfg(
+        board=str(data.get("board", "pico")),
+        sbus_pin=int(data.get("sbus_pin", 5)),
+        pwm_pins=[int(p) for p in data.get("pwm_pins", [10, 11, 12, 13])],
+        max_brightness=int(data.get("max_brightness", 200)),
+        render_hz=int(data.get("render_hz", 200)),
+    )
+    if not 1 <= plane.max_brightness <= 255:
+        raise ConfigError(f"{where}: max_brightness must be between 1 and 255")
+    if not 30 <= plane.render_hz <= 1000:
+        raise ConfigError(f"{where}: render_hz must be between 30 and 1000")
+
+    strips = data.get("strips") or []
+    relays = data.get("relays") or []
+    if len(strips) > MAX_STRIPS:
+        raise ConfigError(
+            f"{where}: {len(strips)} strips, but only {MAX_STRIPS} PIO state "
+            f"machines exist"
+        )
+    if len(relays) > MAX_RELAYS:
+        raise ConfigError(f"{where}: at most {MAX_RELAYS} relays, got {len(relays)}")
+
+    zones = model.zone_count
+    for index, entry in enumerate(strips):
+        spot = f"{where}.strips[{index}]"
+        strip = StripCfg(
+            name=str(entry.get("name", f"strip{index}")),
+            pin=int(_require(entry, "pin", spot)),
+            count=int(_require(entry, "count", spot)),
+            zone=int(entry.get("zone", 0)),
+            offset=int(entry.get("offset", 0)),
+            reverse=bool(entry.get("reverse", False)),
+        )
+        _check_gpio(strip.pin, spot, "WS2812 data")
+        if strip.count < 1:
+            raise ConfigError(f"{spot}: count must be at least 1")
+        if not 0 <= strip.zone < zones:
+            raise ConfigError(
+                f"{spot}: zone {strip.zone} does not exist, the model has "
+                f"{zones} zone(s) ({len(model.channels)} channels)"
+            )
+        if strip.offset + strip.count > MAX_ZONE_PIXELS:
+            raise ConfigError(
+                f"{spot}: reaches pixel {strip.offset + strip.count}, the "
+                f"firmware buffers {MAX_ZONE_PIXELS} per zone"
+            )
+        plane.strips.append(strip)
+
+    for index, entry in enumerate(relays):
+        spot = f"{where}.relays[{index}]"
+        relay = RelayCfg(
+            name=str(entry.get("name", f"relay{index}")),
+            pin=int(_require(entry, "pin", spot)),
+            zone=int(entry.get("zone", 0)),
+            source=str(entry.get("source", "pixel")).lower(),
+            arg=int(entry.get("arg", 0)),
+            threshold=int(entry.get("threshold", 64)),
+            active_low=bool(entry.get("active_low", False)),
+            min_on_ms=int(entry.get("min_on_ms", 0)),
+            min_off_ms=int(entry.get("min_off_ms", 0)),
+        )
+        _check_gpio(relay.pin, spot, "relay driver")
+        if relay.source not in RELAY_SOURCES:
+            raise ConfigError(
+                f"{spot}: source must be one of {', '.join(RELAY_SOURCES)}"
+            )
+        if not 0 <= relay.zone < zones:
+            raise ConfigError(f"{spot}: zone {relay.zone} does not exist")
+        if not 0 <= relay.threshold <= 255:
+            raise ConfigError(f"{spot}: threshold must be between 0 and 255")
+        if relay.min_on_ms < 0 or relay.min_off_ms < 0:
+            raise ConfigError(f"{spot}: minimum times cannot be negative")
+
+        if relay.source == "pixel":
+            zone_pixels = sum(
+                s.count for s in plane.strips if s.zone == relay.zone
+            )
+            if zone_pixels and relay.arg >= zone_pixels:
+                raise ConfigError(
+                    f"{spot}: follows pixel {relay.arg}, but zone {relay.zone} "
+                    f"only has {zone_pixels}"
+                )
+        elif relay.source == "cue":
+            if not 1 <= relay.arg <= 31:
+                raise ConfigError(f"{spot}: cue must be between 1 and 31")
+        elif relay.source == "channel":
+            if not 1 <= relay.arg <= MAX_CH:
+                raise ConfigError(f"{spot}: channel must be between 1 and {MAX_CH}")
+        plane.relays.append(relay)
+
+    for index, entry in enumerate(data.get("nav_lights") or []):
+        spot = f"{where}.nav_lights[{index}]"
+        colour = entry.get("color", [255, 255, 255])
+        if len(colour) != 3 or any(not 0 <= int(c) <= 255 for c in colour):
+            raise ConfigError(f"{spot}: color must be three values between 0 and 255")
+        nav = NavLightCfg(
+            strip=int(_require(entry, "strip", spot)),
+            index=int(_require(entry, "index", spot)),
+            color=(int(colour[0]), int(colour[1]), int(colour[2])),
+        )
+        if not 0 <= nav.strip < len(plane.strips):
+            raise ConfigError(f"{spot}: strip {nav.strip} does not exist")
+        if nav.index >= plane.strips[nav.strip].count:
+            raise ConfigError(
+                f"{spot}: pixel {nav.index} is beyond strip "
+                f"'{plane.strips[nav.strip].name}' with "
+                f"{plane.strips[nav.strip].count} pixels"
+            )
+        plane.nav_lights.append(nav)
+
+    # One pin can only do one job. The UART pins are reserved for the console.
+    used: dict[int, str] = {0: "debug UART TX", 1: "debug UART RX",
+                            plane.sbus_pin: "SBUS input"}
+    for pin in plane.pwm_pins:
+        used.setdefault(pin, "PWM input")
+    for strip in plane.strips:
+        if strip.pin in used:
+            raise ConfigError(
+                f"{where}: GPIO {strip.pin} is used by both {used[strip.pin]} "
+                f"and strip '{strip.name}'"
+            )
+        used[strip.pin] = f"strip '{strip.name}'"
+    for relay in plane.relays:
+        if relay.pin in used:
+            raise ConfigError(
+                f"{where}: GPIO {relay.pin} is used by both {used[relay.pin]} "
+                f"and relay '{relay.name}'"
+            )
+        used[relay.pin] = f"relay '{relay.name}'"
+
+    return plane
 
 
 def _parse_port(data: dict[str, Any]) -> PortCfg:
@@ -206,6 +422,16 @@ def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
             f"{where}: CC {show.blackout_cc} is reserved as blackout_cc but used by "
             f"'{seen[show.blackout_cc]}'"
         )
+
+    if data.get("plane") is not None:
+        if len(model.channels) % CHANNELS_PER_ZONE != 0:
+            raise ConfigError(
+                f"{where}: a model with a 'plane' section needs channels in "
+                f"groups of {CHANNELS_PER_ZONE} (cue, hue, brightness, param) "
+                f"-- one group per zone, got {len(model.channels)}"
+            )
+        model.plane = _parse_plane(data["plane"], f"{where}.plane", model)
+
     return model
 
 
@@ -215,8 +441,12 @@ def load(path: str | Path) -> ShowCfg:
         raw = yaml.safe_load(path.read_text()) or {}
     except yaml.YAMLError as exc:
         raise ConfigError(f"{path}: {exc}") from exc
+    return _build(raw, str(path))
+
+
+def _build(raw: dict[str, Any], source: str) -> ShowCfg:
     if not isinstance(raw, dict):
-        raise ConfigError(f"{path}: top level must be a mapping")
+        raise ConfigError(f"{source}: top level must be a mapping")
 
     # A missing key keeps the default; an explicit `null` disables the feature.
     blackout = raw.get("blackout_cc", 119)
@@ -279,3 +509,144 @@ def load(path: str | Path) -> ShowCfg:
             claimed[key] = model.name
 
     return show
+
+
+# --------------------------------------------------------------- writing back
+
+
+def to_dict(show: ShowCfg) -> dict[str, Any]:
+    """Plain data, as it is served to the web UI and written back to YAML."""
+    data: dict[str, Any] = {
+        "serial_port": show.serial_port,
+        "rate_hz": show.rate_hz,
+        "midi_port_name": show.midi_port_name,
+        "blackout_cc": show.blackout_cc,
+        "global_offset_ms": show.global_offset_ms,
+        "tx_ports": [
+            {
+                "id": port.id,
+                "name": port.name,
+                "format": port.format,
+                "polarity": port.polarity,
+                "nchan": port.nchan,
+                "frame_us": port.frame_us,
+                "sync_us": port.sync_us,
+                "min_us": port.min_us,
+                "max_us": port.max_us,
+            }
+            for port in show.ports
+        ],
+        "models": [],
+    }
+
+    for model in show.models:
+        entry: dict[str, Any] = {
+            "name": model.name,
+            "midi_channel": model.midi_channel,
+            "tx_port": model.tx_port,
+            "tx_offset": model.tx_offset,
+            "channels": [],
+        }
+        for channel in model.channels:
+            item: dict[str, Any] = {"role": channel.role, "cc": channel.cc}
+            if channel.cc_lsb is not None:
+                item["cc_lsb"] = channel.cc_lsb
+            if channel.quantize is not None:
+                item["quantize"] = channel.quantize
+            if channel.invert:
+                item["invert"] = True
+            item["failsafe"] = channel.failsafe
+            entry["channels"].append(item)
+
+        if model.plane is not None:
+            plane = model.plane
+            entry["plane"] = {
+                "board": plane.board,
+                "sbus_pin": plane.sbus_pin,
+                "pwm_pins": list(plane.pwm_pins),
+                "max_brightness": plane.max_brightness,
+                "render_hz": plane.render_hz,
+                "strips": [
+                    {
+                        "name": strip.name,
+                        "pin": strip.pin,
+                        "count": strip.count,
+                        "zone": strip.zone,
+                        "offset": strip.offset,
+                        "reverse": strip.reverse,
+                    }
+                    for strip in plane.strips
+                ],
+                "relays": [
+                    {
+                        "name": relay.name,
+                        "pin": relay.pin,
+                        "zone": relay.zone,
+                        "source": relay.source,
+                        "arg": relay.arg,
+                        "threshold": relay.threshold,
+                        "active_low": relay.active_low,
+                        "min_on_ms": relay.min_on_ms,
+                        "min_off_ms": relay.min_off_ms,
+                    }
+                    for relay in plane.relays
+                ],
+                "nav_lights": [
+                    {"strip": nav.strip, "index": nav.index, "color": list(nav.color)}
+                    for nav in plane.nav_lights
+                ],
+            }
+        data["models"].append(entry)
+
+    return data
+
+
+HEADER = """\
+# Show-Konfiguration fuer die Lightshow-Bridge.
+#
+# Diese Datei wird von der Web-UI geschrieben. Eigene Kommentare gehen dabei
+# verloren -- Notizen also besser in docs/ ablegen.
+#
+#   python -m lightshow --check     Konfiguration pruefen
+#   python -m lightshow --dry-run   ohne Hardware laufen lassen
+"""
+
+
+class _Dumper(yaml.SafeDumper):
+    """Keeps short numeric lists on one line, so colours and pin lists stay readable."""
+
+
+def _represent_list(dumper: yaml.SafeDumper, data: list) -> yaml.Node:
+    inline = len(data) <= 8 and all(isinstance(item, int) for item in data)
+    return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=inline)
+
+
+_Dumper.add_representer(list, _represent_list)
+
+
+def dump(show: ShowCfg) -> str:
+    body = yaml.dump(
+        to_dict(show), Dumper=_Dumper, sort_keys=False, allow_unicode=True,
+        default_flow_style=False, width=100, indent=2,
+    )
+    return HEADER + "\n" + body
+
+
+def load_dict(data: dict[str, Any]) -> ShowCfg:
+    """Validates plain data the same way load() validates a file."""
+    return _build(data, "<web ui>")
+
+
+def save(show: ShowCfg, path: str | Path) -> Path:
+    """Writes the configuration, keeping the previous version as .bak."""
+    path = Path(path)
+    text = dump(show)
+    # Parse what we are about to write, so a bug here cannot leave an
+    # unloadable file behind.
+    load_dict(yaml.safe_load(text))
+
+    if path.exists():
+        backup = path.with_suffix(path.suffix + ".bak")
+        backup.write_text(path.read_text())
+    path.write_text(text)
+    return path

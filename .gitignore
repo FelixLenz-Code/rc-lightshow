@@ -7,3 +7,5 @@ __pycache__/
 *.uf2
 *.elf
 *.bin
+firmware/plane/generated/
+*.yaml.bak

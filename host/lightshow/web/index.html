@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lightshow</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --line: #d8dce3; --text: #1b1f27;
+  --muted: #626b7a; --accent: #2f6fdb; --ok: #1f9254; --bad: #c0392b;
+  --warn: #b8860b; --bar: #2f6fdb; --barbg: #e6e9ef;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c; --panel: #1c2027; --line: #2e343e; --text: #e6e9ef;
+    --muted: #9aa4b3; --accent: #5b9bff; --ok: #3ecf8e; --bad: #ff6b6b;
+    --warn: #e0b34a; --bar: #5b9bff; --barbg: #262c35;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header {
+  position: sticky; top: 0; z-index: 5; background: var(--panel);
+  border-bottom: 1px solid var(--line); padding: 10px 16px;
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+}
+h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: .02em; }
+.pill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px;
+  border: 1px solid var(--line); border-radius: 999px; font-size: 13px;
+  background: var(--bg); white-space: nowrap;
+}
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--bad); }
+.dot.warn { background: var(--warn); }
+.spacer { flex: 1; }
+button {
+  font: inherit; padding: 6px 14px; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button.danger.active { background: var(--bad); color: #fff; }
+nav { display: flex; gap: 4px; padding: 12px 16px 0; flex-wrap: wrap; }
+nav button.tab { border-radius: 7px 7px 0 0; border-bottom-color: transparent; }
+nav button.tab[aria-selected="true"] { background: var(--panel); border-color: var(--line); border-bottom-color: var(--panel); font-weight: 600; }
+main { padding: 0 16px 48px; }
+section.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin-bottom: 16px;
+}
+h2 { font-size: 15px; margin: 0 0 12px; }
+h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); font-weight: 600; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.scroll { overflow-x: auto; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+input, select {
+  font: inherit; font-size: 13px; padding: 4px 7px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  max-width: 100%;
+}
+input[type=number] { width: 84px; }
+input[type=text] { width: 150px; }
+input[type=checkbox] { width: 16px; height: 16px; }
+.bar { height: 9px; background: var(--barbg); border-radius: 5px; overflow: hidden; min-width: 90px; }
+.bar > i { display: block; height: 100%; background: var(--bar); }
+pre {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; overflow-x: auto; font-size: 12.5px; line-height: 1.45; margin: 0;
+}
+.banner { padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; font-size: 13.5px; }
+.banner.lock { background: color-mix(in srgb, var(--warn) 14%, transparent); border: 1px solid var(--warn); }
+.banner.err { background: color-mix(in srgb, var(--bad) 14%, transparent); border: 1px solid var(--bad); }
+.banner.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); border: 1px solid var(--ok); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.hidden { display: none !important; }
+.tagline { font-size: 12.5px; color: var(--muted); margin: -6px 0 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Lightshow</h1>
+  <span class="pill"><i class="dot" id="dot-midi"></i><span id="txt-midi">DAW …</span></span>
+  <span class="pill"><i class="dot" id="dot-pico"></i><span id="txt-pico">Pico …</span></span>
+  <span class="pill"><span id="txt-rate">—</span></span>
+  <span class="spacer"></span>
+  <button id="btn-blackout" class="danger">Blackout</button>
+</header>
+
+<nav>
+  <button class="tab" data-tab="live" aria-selected="true">Live</button>
+  <button class="tab" data-tab="models" aria-selected="false">Modelle</button>
+  <button class="tab" data-tab="wiring" aria-selected="false">Anschluss</button>
+</nav>
+
+<main>
+  <!-- ------------------------------------------------------------- Live -->
+  <div id="tab-live">
+    <section class="panel">
+      <h2>Verbindungen</h2>
+      <div class="scroll"><table>
+        <tbody id="conn-table"></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <h2>Was aus der DAW ankommt</h2>
+      <p class="tagline">Werte in Mikrosekunden, so wie sie an den Sender gehen.
+        „Failsafe“ heißt: auf diesem Controller kam noch nichts an.</p>
+      <div id="live-models"></div>
+    </section>
+  </div>
+
+  <!-- ----------------------------------------------------------- Modelle -->
+  <div id="tab-models" class="hidden">
+    <div id="lock-banner" class="banner lock hidden"></div>
+    <div id="save-banner" class="banner hidden"></div>
+    <div id="models-editor"></div>
+    <section class="panel">
+      <div class="row">
+        <button id="btn-save" class="primary">Speichern</button>
+        <button id="btn-reload">Verwerfen und neu laden</button>
+        <span class="muted small" id="config-path"></span>
+      </div>
+    </section>
+  </div>
+
+  <!-- ---------------------------------------------------------- Anschluss -->
+  <div id="tab-wiring" class="hidden">
+    <section class="panel">
+      <div class="row">
+        <label for="wiring-model">Modell</label>
+        <select id="wiring-model"></select>
+        <span class="spacer"></span>
+        <button id="btn-write" class="primary">config.h schreiben</button>
+      </div>
+      <div id="write-banner" class="banner hidden" style="margin-top:12px"></div>
+    </section>
+    <div id="wiring-out"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let CONFIG = null;      // working copy, edited in the Modelle tab
+let LOCKED = false;
+let LAST_STATE = null;
+
+/* ------------------------------------------------------------------ tabs */
+document.querySelectorAll('nav .tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('nav .tab').forEach(b =>
+      b.setAttribute('aria-selected', String(b === btn)));
+    ['live', 'models', 'wiring'].forEach(name =>
+      $('tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab));
+    if (btn.dataset.tab === 'wiring') loadWiring();
+  };
+});
+
+/* ----------------------------------------------------------- live status */
+function renderStatus(s) {
+  LAST_STATE = s;
+  const midi = s.midi;
+  const connected = midi.connections.length > 0;
+  $('dot-midi').className = 'dot ' + (midi.receiving ? 'ok' : (connected ? 'warn' : 'bad'));
+  $('txt-midi').textContent = midi.receiving
+    ? `DAW sendet · ${midi.rate.toFixed(0)}/s`
+    : (connected ? 'DAW verbunden, sendet nicht' : 'DAW nicht verbunden');
+
+  const pico = s.pico;
+  $('dot-pico').className = 'dot ' + (pico.dry_run ? 'warn' : (pico.connected ? 'ok' : 'bad'));
+  $('txt-pico').textContent = pico.dry_run ? 'Pico: dry-run'
+    : (pico.connected ? `Pico verbunden · ${pico.frames} Frames` : 'Pico getrennt');
+
+  $('txt-rate').textContent = `${s.rate_hz} Hz`;
+  $('btn-blackout').classList.toggle('active', s.blackout);
+  $('btn-blackout').textContent = s.blackout ? 'Blackout aktiv' : 'Blackout';
+
+  const rows = [];
+  rows.push(['MIDI-Port', `<code>${esc(midi.port)}</code>`,
+    connected ? midi.connections.map(esc).join('<br>')
+              : '<span class="muted">niemand verbunden — in Ardour den Track-Ausgang auf diesen Port legen</span>']);
+  rows.push(['MIDI-Nachrichten', midi.messages,
+    midi.receiving ? `${midi.rate.toFixed(1)} pro Sekunde` : '<span class="muted">still</span>']);
+  rows.push(['Pico', `<code>${esc(pico.device)}</code>`,
+    pico.dry_run ? 'dry-run, kein Gerät geöffnet'
+      : (pico.connected ? `${pico.frames} Frames gesendet`
+        : `<span class="muted">${esc(pico.error || 'nicht verbunden')}</span>`)]);
+  if (pico.status.length) {
+    rows.push(['Firmware', '', '<pre style="margin:0">' + pico.status.map(esc).join('\n') + '</pre>']);
+  }
+  $('conn-table').innerHTML = rows.map(r =>
+    `<tr><th style="width:150px">${r[0]}</th><td style="width:180px">${r[1]}</td><td>${r[2]}</td></tr>`).join('');
+
+  $('live-models').innerHTML = s.models.map(m => `
+    <h3>${esc(m.name)} · MIDI-Kanal ${m.midi_channel} → TX${m.tx_port}${m.zones > 1 ? ` · ${m.zones} Zonen` : ''}</h3>
+    <div class="scroll"><table>
+      <thead><tr><th>Kanal</th><th>Rolle</th><th>CC</th><th class="num">µs</th>
+        <th style="width:40%">Pegel</th><th>Wert</th></tr></thead>
+      <tbody>${m.channels.map(c => `
+        <tr>
+          <td class="num">${c.channel}</td>
+          <td>${esc(c.role)}</td>
+          <td>${c.cc}${c.cc_lsb !== null ? ' + ' + c.cc_lsb : ''}</td>
+          <td class="num">${c.us}</td>
+          <td><div class="bar"><i style="width:${(c.fraction * 100).toFixed(1)}%"></i></div></td>
+          <td>${c.live ? esc(c.decoded) : '<span class="muted">Failsafe</span>'}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`).join('');
+
+  if (LOCKED !== s.locked) { LOCKED = s.locked; applyLock(); }
+}
+
+function applyLock() {
+  const banner = $('lock-banner');
+  banner.classList.toggle('hidden', !LOCKED);
+  banner.textContent = 'Es läuft eine Show — es kommt gerade MIDI herein. '
+    + 'Die Bearbeitung ist gesperrt, damit sich die Zuordnung nicht mitten in '
+    + 'der Show ändert. Wiedergabe in der DAW stoppen zum Bearbeiten.';
+  $('models-editor').querySelectorAll('input, select, button').forEach(e => e.disabled = LOCKED);
+  $('btn-save').disabled = LOCKED;
+}
+
+/* ---------------------------------------------------------------- editor */
+async function loadConfig() {
+  const r = await fetch('/api/config').then(r => r.json());
+  CONFIG = r.config;
+  $('config-path').textContent = r.path;
+  renderEditor();
+}
+
+const SOURCES = [['pixel', 'folgt Pixel'], ['brightness', 'Master-Dimmer'],
+                 ['cue', 'ab Cue'], ['channel', 'eigener RC-Kanal']];
+
+function renderEditor() {
+  $('models-editor').innerHTML = CONFIG.models.map((m, mi) => {
+    const plane = m.plane;
+    if (!plane) {
+      return `<section class="panel"><h2>${esc(m.name)}</h2>
+        <p class="muted small">Noch keine Bordkonfiguration.</p>
+        <button onclick="addPlane(${mi})">Bordkonfiguration anlegen</button></section>`;
+    }
+    const zones = Math.max(1, Math.floor(m.channels.length / 4));
+    return `<section class="panel">
+      <h2>${esc(m.name)}</h2>
+      <p class="tagline">MIDI-Kanal ${m.midi_channel} → TX${m.tx_port}, Senderkanäle
+        ${m.tx_offset + 1}–${m.tx_offset + m.channels.length} · ${zones} Zone(n)
+        · Helligkeitsdeckel ${plane.max_brightness}</p>
+
+      <h3>LED-Strips (${plane.strips.length}/8)</h3>
+      <div class="scroll"><table>
+        <thead><tr><th>Name</th><th>GPIO</th><th class="num">Pixel</th><th>Zone</th>
+          <th class="num">Offset</th><th>rückwärts</th><th></th></tr></thead>
+        <tbody>${plane.strips.map((s, si) => `
+          <tr>
+            <td><input type="text" value="${esc(s.name)}" oninput="upd(${mi},'strips',${si},'name',this.value)"></td>
+            <td><input type="number" value="${s.pin}" min="0" max="28" oninput="upd(${mi},'strips',${si},'pin',+this.value)"></td>
+            <td><input type="number" value="${s.count}" min="1" max="256" oninput="upd(${mi},'strips',${si},'count',+this.value)"></td>
+            <td>${zoneSelect(zones, s.zone, `upd(${mi},'strips',${si},'zone',+this.value)`)}</td>
+            <td><input type="number" value="${s.offset}" min="0" max="255" oninput="upd(${mi},'strips',${si},'offset',+this.value)"></td>
+            <td><input type="checkbox" ${s.reverse ? 'checked' : ''} onchange="upd(${mi},'strips',${si},'reverse',this.checked)"></td>
+            <td><button onclick="del(${mi},'strips',${si})">−</button></td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+      <div class="row" style="margin-top:8px">
+        <button onclick="addStrip(${mi})">Strip hinzufügen</button>
+        <span class="muted small">Gleicher Offset spiegelt zwei Strips, fortlaufende
+          Offsets ergeben eine lange Kette für Lauflichter.</span>
+      </div>
+
+      <h3>Relais (${plane.relays.length}/8)</h3>
+      <div class="scroll"><table>
+        <thead><tr><th>Name</th><th>GPIO</th><th>Zone</th><th>Quelle</th>
+          <th class="num">Arg</th><th class="num">Schwelle</th><th>active&nbsp;low</th>
+          <th class="num">min&nbsp;an</th><th class="num">min&nbsp;aus</th><th></th></tr></thead>
+        <tbody>${plane.relays.map((r, ri) => `
+          <tr>
+            <td><input type="text" value="${esc(r.name)}" oninput="upd(${mi},'relays',${ri},'name',this.value)"></td>
+            <td><input type="number" value="${r.pin}" min="0" max="28" oninput="upd(${mi},'relays',${ri},'pin',+this.value)"></td>
+            <td>${zoneSelect(zones, r.zone, `upd(${mi},'relays',${ri},'zone',+this.value)`)}</td>
+            <td><select onchange="upd(${mi},'relays',${ri},'source',this.value)">
+              ${SOURCES.map(([v, l]) => `<option value="${v}" ${r.source === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select></td>
+            <td><input type="number" value="${r.arg}" min="0" max="255" oninput="upd(${mi},'relays',${ri},'arg',+this.value)"></td>
+            <td><input type="number" value="${r.threshold}" min="0" max="255" oninput="upd(${mi},'relays',${ri},'threshold',+this.value)"></td>
+            <td><input type="checkbox" ${r.active_low ? 'checked' : ''} onchange="upd(${mi},'relays',${ri},'active_low',this.checked)"></td>
+            <td><input type="number" value="${r.min_on_ms}" min="0" max="5000" oninput="upd(${mi},'relays',${ri},'min_on_ms',+this.value)"></td>
+            <td><input type="number" value="${r.min_off_ms}" min="0" max="5000" oninput="upd(${mi},'relays',${ri},'min_off_ms',+this.value)"></td>
+            <td><button onclick="del(${mi},'relays',${ri})">−</button></td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+      <div class="row" style="margin-top:8px">
+        <button onclick="addRelay(${mi})">Relais hinzufügen</button>
+        <span class="muted small">min an/aus auf 0 für MOSFETs, ~200 ms für
+          mechanische Relais. „active low“ für die üblichen Relaismodule.</span>
+      </div>
+
+      <h3>Positionslichter (${plane.nav_lights.length})</h3>
+      <div class="scroll"><table>
+        <thead><tr><th>Strip</th><th class="num">Pixel</th><th>Farbe</th><th></th></tr></thead>
+        <tbody>${plane.nav_lights.map((n, ni) => `
+          <tr>
+            <td><select onchange="upd(${mi},'nav_lights',${ni},'strip',+this.value)">
+              ${plane.strips.map((s, si) => `<option value="${si}" ${n.strip === si ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+            </select></td>
+            <td><input type="number" value="${n.index}" min="0" max="255" oninput="upd(${mi},'nav_lights',${ni},'index',+this.value)"></td>
+            <td><input type="color" value="${rgbHex(n.color)}" onchange="setColor(${mi},${ni},this.value)"></td>
+            <td><button onclick="del(${mi},'nav_lights',${ni})">−</button></td>
+          </tr>`).join('')}</tbody>
+      </table></div>
+      <div class="row" style="margin-top:8px">
+        <button onclick="addNav(${mi})" ${plane.strips.length ? '' : 'disabled'}>Positionslicht hinzufügen</button>
+        <span class="muted small">Liegen über jedem Effekt und lassen sich nicht abschalten.</span>
+      </div>
+    </section>`;
+  }).join('');
+  applyLock();
+}
+
+const zoneSelect = (zones, value, handler) =>
+  `<select onchange="${handler}">${Array.from({length: zones}, (_, z) =>
+    `<option value="${z}" ${value === z ? 'selected' : ''}>${z}</option>`).join('')}</select>`;
+
+const rgbHex = (c) => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+
+function upd(mi, list, index, key, value) { CONFIG.models[mi].plane[list][index][key] = value; }
+function setColor(mi, ni, hex) {
+  CONFIG.models[mi].plane.nav_lights[ni].color =
+    [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16));
+}
+function del(mi, list, index) { CONFIG.models[mi].plane[list].splice(index, 1); renderEditor(); }
+function addPlane(mi) {
+  CONFIG.models[mi].plane = {board: 'pico', sbus_pin: 5, pwm_pins: [10, 11, 12, 13],
+    max_brightness: 200, render_hz: 200, strips: [], relays: [], nav_lights: []};
+  renderEditor();
+}
+function freePin(plane) {
+  const used = new Set([0, 1, plane.sbus_pin, ...plane.pwm_pins,
+    ...plane.strips.map(s => s.pin), ...plane.relays.map(r => r.pin)]);
+  for (const pin of [2,3,4,6,7,8,9,14,15,16,17,18,19,20,21,22,26,27,28])
+    if (!used.has(pin)) return pin;
+  return 2;
+}
+function addStrip(mi) {
+  const plane = CONFIG.models[mi].plane;
+  plane.strips.push({name: 'strip' + plane.strips.length, pin: freePin(plane),
+    count: 30, zone: 0, offset: 0, reverse: false});
+  renderEditor();
+}
+function addRelay(mi) {
+  const plane = CONFIG.models[mi].plane;
+  plane.relays.push({name: 'relais' + plane.relays.length, pin: freePin(plane), zone: 0,
+    source: 'cue', arg: 1, threshold: 64, active_low: true, min_on_ms: 200, min_off_ms: 200});
+  renderEditor();
+}
+function addNav(mi) {
+  CONFIG.models[mi].plane.nav_lights.push({strip: 0, index: 0, color: [255, 255, 255]});
+  renderEditor();
+}
+
+$('btn-save').onclick = async () => {
+  const banner = $('save-banner');
+  const r = await fetch('/api/config', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({config: CONFIG})}).then(r => r.json());
+  banner.className = 'banner ' + (r.ok ? 'ok' : 'err');
+  banner.textContent = r.ok ? r.note : r.error;
+  banner.classList.remove('hidden');
+  if (r.ok) loadConfig();
+};
+$('btn-reload').onclick = () => { $('save-banner').classList.add('hidden'); loadConfig(); };
+
+/* ------------------------------------------------------------- Anschluss */
+async function loadWiring() {
+  const select = $('wiring-model');
+  if (!select.options.length && LAST_STATE) {
+    select.innerHTML = LAST_STATE.models.map(m =>
+      `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+  }
+  const name = select.value;
+  if (!name) return;
+  const r = await fetch('/api/plane/' + encodeURIComponent(name)).then(r => r.json());
+  const out = $('wiring-out');
+  if (!r.ok) {
+    out.innerHTML = `<section class="panel"><div class="banner err">${esc(r.error)}</div></section>`;
+    return;
+  }
+  out.innerHTML = `
+    <section class="panel">
+      <h2>Wo was angeschlossen wird</h2>
+      <p class="tagline">Pico im Modell. „Pin“ ist der physische Pin auf der Platine,
+        von oben links gezählt.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>GPIO</th><th>Pin</th><th>Funktion</th><th>Angeschlossen</th><th>Hinweis</th></tr></thead>
+        <tbody>${r.wiring.map(w => `<tr>
+          <td class="num">${w.gpio >= 0 ? 'GP' + w.gpio : '—'}</td>
+          <td>${esc(w.physical)}</td>
+          <td>${esc(w.role)}</td>
+          <td>${esc(w.detail)}</td>
+          <td class="muted">${esc(w.note)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <p class="small muted" style="margin-top:12px">
+        ${r.power.pixels} Pixel · Spitzenstrom bei Weiß ca. <b>${r.power.worst_a} A</b>,
+        typisch ca. ${r.power.typical_a} A. Eigenes UBEC verwenden, nicht das Empfänger-BEC.
+        Geschaltete Relais-Lasten kommen obendrauf.
+      </p>
+    </section>
+    <section class="panel">
+      <h2>Bauen und flashen</h2>
+      <p class="tagline">Schreibt <code>${esc(r.target)}</code> und baut damit die Bordfirmware.</p>
+      <pre>${esc(r.build)}</pre>
+    </section>
+    <section class="panel">
+      <h2>Generierte config.h</h2>
+      <pre>${esc(r.header)}</pre>
+    </section>`;
+}
+$('wiring-model').onchange = loadWiring;
+$('btn-write').onclick = async () => {
+  const banner = $('write-banner');
+  const r = await fetch('/api/plane/' + encodeURIComponent($('wiring-model').value),
+    {method: 'POST'}).then(r => r.json());
+  banner.className = 'banner ' + (r.ok ? 'ok' : 'err');
+  banner.textContent = r.ok ? 'Geschrieben: ' + r.path : r.error;
+  banner.classList.remove('hidden');
+};
+
+/* ---------------------------------------------------------------- common */
+$('btn-blackout').onclick = () => fetch('/api/blackout', {method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({on: !(LAST_STATE && LAST_STATE.blackout)})});
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+
+const events = new EventSource('/api/events');
+events.onmessage = (e) => renderStatus(JSON.parse(e.data));
+events.onerror = () => {
+  $('dot-midi').className = $('dot-pico').className = 'dot bad';
+  $('txt-midi').textContent = 'Bridge nicht erreichbar';
+};
+loadConfig();
+</script>
+</body>
+</html>

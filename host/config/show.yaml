@@ -78,6 +78,14 @@ tx_ports:
 # quantize: Anzahl diskreter Stufen. Der Wert landet in der Mitte seiner Stufe,
 # damit ein verrauschter Kanal nie auf einer Grenze sitzt.
 
+#
+# Der Block `plane` beschreibt die Bordelektronik. Daraus erzeugt die Web-UI
+# (oder `--generate <modell>`) die config.h der Bordfirmware und die
+# Anschlussuebersicht. Zum Flieger fuehrt kein Datenweg ausser den RC-Kanaelen,
+# deshalb muss diese Konfiguration mitgeflasht werden.
+#
+# Die Zahl der Zonen ergibt sich aus den Kanaelen: je vier Kanaele eine Zone.
+
 models:
   - name: eule
     midi_channel: 1
@@ -88,6 +96,23 @@ models:
       - {role: hue,        cc: 21,               failsafe: 1500}
       - {role: brightness, cc: 22, cc_lsb: 54,   failsafe: 1000}
       - {role: param,      cc: 23,               failsafe: 1500}
+    plane:
+      board: pico
+      max_brightness: 200
+      strips:
+        - {name: flaeche_links,  pin: 2, count: 30, zone: 0, offset: 0, reverse: false}
+        - {name: flaeche_rechts, pin: 3, count: 30, zone: 0, offset: 0, reverse: true}
+      relays:
+        # MOSFET, blitzt im Takt des Effekts
+        - {name: scheinwerfer, pin: 6, source: pixel, arg: 0, threshold: 64,
+           active_low: false, min_on_ms: 0, min_off_ms: 0}
+        # Relaismodul, ab Cue 5, mit Mindestschaltzeit
+        - {name: rauch, pin: 7, source: cue, arg: 5,
+           active_low: true, min_on_ms: 200, min_off_ms: 200}
+      nav_lights:
+        - {strip: 0, index: 0,  color: [255, 0, 0]}
+        - {strip: 1, index: 0,  color: [0, 255, 0]}
+        - {strip: 0, index: 29, color: [255, 255, 255]}
 
   - name: falke
     midi_channel: 2
@@ -98,3 +123,13 @@ models:
       - {role: hue,        cc: 21,               failsafe: 1500}
       - {role: brightness, cc: 22, cc_lsb: 54,   failsafe: 1000}
       - {role: param,      cc: 23,               failsafe: 1500}
+    plane:
+      board: pico
+      strips:
+        - {name: rumpf, pin: 2, count: 40, zone: 0, offset: 0, reverse: false}
+      relays:
+        - {name: landelicht, pin: 6, source: brightness, threshold: 100,
+           active_low: true, min_on_ms: 200, min_off_ms: 200}
+      nav_lights:
+        - {strip: 0, index: 0,  color: [255, 0, 0]}
+        - {strip: 0, index: 39, color: [255, 255, 255]}

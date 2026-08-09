@@ -35,6 +35,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="validate the configuration and exit")
     parser.add_argument("--list-midi", action="store_true",
                         help="list available MIDI inputs and exit")
+    parser.add_argument("--no-web", action="store_true",
+                        help="do not start the web interface")
+    parser.add_argument("--web-port", type=int, default=8765,
+                        help="port for the web interface (default: 8765)")
+    parser.add_argument("--web-host", default="127.0.0.1",
+                        help="bind address; 0.0.0.0 opens it to the network "
+                             "so a phone can reach it (default: 127.0.0.1)")
+    parser.add_argument("--generate", metavar="MODEL",
+                        help="write the airborne config.h for a model and exit")
     return parser.parse_args(argv)
 
 
@@ -128,6 +137,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.serial_port:
         show.serial_port = args.serial_port
 
+    if args.generate:
+        return generate_plane_header(show, args.config, args.generate)
+
     print(describe(show))
     if args.check:
         print("configuration ok")
@@ -137,6 +149,19 @@ def main(argv: list[str] | None = None) -> int:
 
     mapper = Mapper(show)
     link = PicoLink(show.serial_port, show.wire_ports(), dry_run=args.dry_run)
+
+    web = None
+    if not args.no_web:
+        from .webui import Server
+
+        web = Server(show, mapper, link, config_path=args.config,
+                     repo_root=repo_root(args.config),
+                     host=args.web_host, port=args.web_port)
+        try:
+            print(f"web interface: {web.start()}")
+        except OSError as exc:
+            print(f"web interface not started: {exc}", file=sys.stderr)
+            web = None
 
     use_tui = not args.no_tui and sys.stdout.isatty()
     try:
@@ -152,8 +177,41 @@ def main(argv: list[str] | None = None) -> int:
         print(f"MIDI error: {exc}", file=sys.stderr)
         return 1
     finally:
+        if web is not None:
+            web.stop()
         link.close()
 
+    return 0
+
+
+def repo_root(config_path: Path) -> Path:
+    """Walks up from the configuration until the repository root shows up."""
+    for candidate in [Path.cwd(), *Path(config_path).resolve().parents]:
+        if (candidate / "firmware").is_dir() and (candidate / "host").is_dir():
+            return candidate
+    return Path.cwd()
+
+
+def generate_plane_header(show: config_module.ShowCfg, config_path: Path,
+                          name: str) -> int:
+    from . import planegen
+
+    model = next((m for m in show.models if m.name == name), None)
+    if model is None:
+        available = ", ".join(m.name for m in show.models)
+        print(f"no model '{name}' -- available: {available}", file=sys.stderr)
+        return 2
+    if model.plane is None:
+        print(f"model '{name}' has no 'plane' section in the configuration",
+              file=sys.stderr)
+        return 2
+
+    target = repo_root(config_path) / "firmware" / "plane" / "generated" / f"{name}.h"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(planegen.generate(show, model))
+    print(f"wrote {target}")
+    print(f"cmake -S firmware/plane -B build/plane-{name} "
+          f"-DPLANE_CONFIG=generated/{name}.h")
     return 0
 
 
