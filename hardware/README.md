@@ -75,23 +75,40 @@ oder Optokoppler (6N137) je Ausgang.
 
 ## Bordseite: Lichtcontroller
 
-**Waveshare RP2040-Zero** (2,4 g, 23,5 × 18 mm). Belegung in
-`firmware/plane/src/config.h`, Board-Definition steht als Default in der
-`CMakeLists.txt` — ein anderes Board über `-DPICO_BOARD=<name>`.
+**Raspberry Pi Pico** (51 × 21 mm, ~3 g ohne Stiftleisten). Dasselbe Board wie
+am Boden — ein Ersatzteil für beide Seiten, ein Bauteil zum Nachbestellen.
+Belegung in `firmware/plane/src/config.h`, Board-Definition als Default in der
+`CMakeLists.txt`.
 
-Derselbe Chip wie am Boden, und das aus gutem Grund: PIO erzeugt das
-WS2812-Timing in Hardware, sodass die Effektberechnung nie Pixel flackern lässt,
-und der UART kann 100 kBaud 8E2 nativ — SBUS braucht damit nur
+Der RP2040 ist hier die richtige Wahl, weil PIO das WS2812-Timing in Hardware
+erzeugt — die Effektberechnung kann also beliebig lange dauern, ohne dass Pixel
+flackern — und weil der UART 100 kBaud 8E2 nativ kann: SBUS braucht damit nur
 `gpio_set_inover()` statt eines Invertertransistors.
 
-Alle belegten Pins liegen auf den Castellated Pads. GP16 trägt die
-Onboard-WS2812 als Status-LED.
+Wird es im Rumpf eng oder zählt jedes Gramm, passt derselbe Code ohne Änderung
+auf einen **Waveshare RP2040-Zero** (2,4 g, 23,5 × 18 mm) — alle belegten Pins
+liegen dort auf den Castellated Pads:
+
+```bash
+cmake -S firmware/plane -B build/plane -DPICO_BOARD=waveshare_rp2040_zero
+```
+
+### Stromversorgung
+
+Der Pico wird über **VSYS (Pin 39)** und GND (Pin 38) vom UBEC versorgt, nicht
+über VBUS. VSYS nimmt 1,8–5,5 V, und die interne Schottky-Diode sorgt dafür,
+dass ein gleichzeitig gestecktes USB-Kabel nichts kaputt macht — praktisch beim
+Einrichten am Schreibtisch.
+
+Der LED-Streifen bekommt seine 5 V **direkt vom UBEC**, nicht über den Pico.
 
 | GPIO   | Funktion                                    |
 |--------|---------------------------------------------|
-| 0      | WS2812-Daten (über Pegelwandler)            |
+| 0 / 1  | Debug-UART (Konsolenausgabe)                |
+| 2      | WS2812-Daten (über Pegelwandler)            |
 | 5      | SBUS vom Empfänger (UART1 RX, invertiert)   |
 | 10–13  | PWM-Eingänge, Fallback ohne SBUS            |
+| 39/38  | VSYS / GND vom UBEC                         |
 
 SBUS wird bevorzugt: eine Leitung, alle 16 Kanäle, und mehrere Modelle können
 sich einen Sender teilen. Die PWM-Eingänge werden nur benutzt, wenn keine
@@ -127,7 +144,7 @@ den Spitzenstrom und gleichzeitig die Blendwirkung für den Piloten.
 
 | Teil                        | Menge | ca. Preis |
 |-----------------------------|-------|-----------|
-| RP2040-Zero                 | 1     | 4 €       |
+| Raspberry Pi Pico           | 1     | 5 €       |
 | 74AHCT125                   | 1     | 0,50 €    |
 | WS2812-Streifen 60 LED      | 1     | 10 €      |
 | UBEC 5 V / 3 A              | 1     | 6 €       |

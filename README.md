@@ -109,17 +109,24 @@ der Software probieren, das kostet nichts.
 
 ### Im Modell
 
-Ein **Waveshare RP2040-Zero** (2,4 g, ~5 €). Derselbe Chip wie am Boden, und das
-aus zwei handfesten Gründen: PIO erzeugt das WS2812-Timing in Hardware, sodass
-die Effektberechnung nie Pixel flackern lässt, und der UART kann 100 kBaud 8E2
-nativ — SBUS braucht damit nur `gpio_set_inover()` statt eines
-Invertertransistors.
+Ein **Raspberry Pi Pico** — dasselbe Board wie am Boden, also ein Ersatzteil für
+beide Seiten. Der RP2040 passt hier aus zwei handfesten Gründen: PIO erzeugt das
+WS2812-Timing in Hardware, sodass die Effektberechnung nie Pixel flackern lässt,
+und der UART kann 100 kBaud 8E2 nativ — SBUS braucht damit nur
+`gpio_set_inover()` statt eines Invertertransistors.
+
+Wird es im Rumpf eng, läuft derselbe Code unverändert auf einem Waveshare
+RP2040-Zero (2,4 g statt ~3 g): `-DPICO_BOARD=waveshare_rp2040_zero`.
 
 | GPIO   | Funktion                                  |
 |--------|-------------------------------------------|
-| 0      | WS2812-Daten, über 74AHCT125 Pegelwandler |
+| 0 / 1  | Debug-UART                                |
+| 2      | WS2812-Daten, über 74AHCT125 Pegelwandler |
 | 5      | SBUS vom Empfänger                        |
 | 10–13  | PWM-Eingänge, Fallback ohne SBUS          |
+
+Versorgung über **VSYS (Pin 39)** und GND (Pin 38) vom UBEC, nicht über VBUS —
+so stört ein gleichzeitig gestecktes USB-Kabel beim Einrichten nicht.
 
 SBUS wird bevorzugt, PWM automatisch genutzt, wenn keine SBUS-Frames ankommen.
 Beides läuft gleichzeitig, es gibt keinen Umschalter.
@@ -171,10 +178,10 @@ Ergebnis:
 
 | Datei                            | Ziel                    | Größe            |
 |----------------------------------|-------------------------|------------------|
-| `build/pico/lightshow_tx.uf2`    | Pico an der Bodenstation| 44 KB Flash      |
-| `build/plane/lightshow_plane.uf2`| RP2040-Zero im Modell   | 28 KB Flash      |
+| `build/pico/lightshow_tx.uf2`    | Pico an der Bodenstation| 46 KB Flash      |
+| `build/plane/lightshow_plane.uf2`| Pico im Modell          | 31 KB Flash      |
 
-Die Bordfirmware baut per Default für `waveshare_rp2040_zero`; ein anderes Board
+Beide Firmwares bauen per Default für den Raspberry Pi Pico; ein anderes Board
 über `-DPICO_BOARD=<name>`.
 
 ### Flashen

@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 
-# Waveshare RP2040-Zero: 2.4 g, castellated pads for GP0..GP15, onboard WS2812
-# on GP16 as a status LED. Override with -DPICO_BOARD=<name> for other boards.
+# Raspberry Pi Pico, same board as the ground station. Override with
+# -DPICO_BOARD=<name> for a smaller variant, e.g. waveshare_rp2040_zero --
+# the pin assignment in src/config.h is available on both.
 if(NOT DEFINED PICO_BOARD)
-    set(PICO_BOARD waveshare_rp2040_zero)
+    set(PICO_BOARD pico)
 endif()
 
 include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)

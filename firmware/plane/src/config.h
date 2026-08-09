@@ -8,7 +8,9 @@
 
 // ---------------------------------------------------------------- pixels ---
 
-#define LED_PIN       0     // WS2812 data, through a 74AHCT125 level shifter
+// WS2812 data, through a 74AHCT125 level shifter. Keep off GP0/GP1: those are
+// the default debug UART pins, and PIO would silently take the pin away from it.
+#define LED_PIN       2
 #define LED_COUNT     60
 #define RENDER_HZ     200   // effect update rate, independent of the RC rate
 
