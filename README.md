@@ -1,19 +1,22 @@
 # Lightshow
 
-Musiksynchrone Lichtshow mit Modellflugzeugen. Die Show wird in Ardour als
-MIDI-Automation gebaut, eine Bridge setzt das in RC-Kanäle um, ein RP2040
-speist sie als PPM oder SBUS in die Lehrer/Schüler-Buchse von bis zu acht
-Fernsteuerungen, und im Modell erzeugt ein zweiter Mikrocontroller daraus die
-eigentlichen Lichteffekte.
+Musiksynchrone Lichtshow mit Modellflugzeugen. Die Show wird im Browser gebaut —
+Musik und Effektspuren oben, Lichtspuren je Modell darunter. Die Bridge spielt
+die Musik selbst und ist damit die Uhr; sie setzt die Lichtspuren in RC-Kanäle
+um, ein RP2040 speist sie als PPM oder SBUS in die Lehrer/Schüler-Buchse von bis
+zu acht Fernsteuerungen, und im Modell erzeugt ein zweiter Mikrocontroller
+daraus die eigentlichen Lichteffekte.
 
 ```
-Ardour ──MIDI──▶ host/ ──USB──▶ firmware/pico/ ──Klinke──▶ Sender ──RF──▶ Empfänger
-  Automation      Bridge          8× PPM/SBUS    Trainer                     │
-                                                                             │
-                                                         firmware/plane/ ◀───┘
-                                                          Effekt-Engine
-                                                               │
-                                                            WS2812
+Browser ──▶ host/ ──┬──▶ Soundkarte
+ Editor     Bridge  │      Musik
+                    └──USB──▶ firmware/pico/ ──Klinke──▶ Sender ──RF──▶ Empfänger
+                                8× PPM/SBUS    Trainer                     │
+                                                                           │
+                                                       firmware/plane/ ◀───┘
+                                                        Effekt-Engine
+                                                             │
+                                                       WS2812 + Relais
 ```
 
 **Inhalt**
@@ -24,7 +27,7 @@ Ardour ──MIDI──▶ host/ ──USB──▶ firmware/pico/ ──Klinke�
 4. [Hardware](#hardware)
 5. [Installation](#installation)
 6. [Konfiguration](#konfiguration)
-7. [Ardour](#ardour)
+7. [Show-Editor](#show-editor)
 8. [Inbetriebnahme in fünf Stufen](#inbetriebnahme-in-fünf-stufen)
 9. [Testverfahren](#testverfahren)
 10. [Fehlersuche](#fehlersuche)
@@ -70,11 +73,13 @@ zwei Sender, nicht acht.
 
 **Fertig und automatisiert getestet:**
 
+- Show-Editor mit Audiospuren, Lichtspuren und Projektverwaltung; die Bridge
+  spielt die Musik und liefert die Uhr
 - Bridge läuft, end-to-end mit echtem ALSA-MIDI geprüft
 - Beide Firmwares kompilieren warnungsfrei (`-Wall -Wextra` auf den eigenen Targets)
 - Web-UI mit Live-Status, Modelleditor, Anschlussübersicht sowie Bauen und
   Aufspielen der Firmware
-- 96 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
+- 150 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
   Protokolls, eine Verifikation der PPM-Timing-Rechnung und ein Compiler-Lauf
   über die generierte Bordkonfiguration
 
@@ -397,18 +402,45 @@ Sender: [`docs/sender-setup.md`](docs/sender-setup.md).
 
 ---
 
-## Ardour
+## Show-Editor
 
-Ausführlich in [`docs/ardour-setup.md`](docs/ardour-setup.md). Kurzfassung:
+Im Tab **Show**: oben die Audiospuren, darunter je Modell eine Lichtspur.
+Ausführlich in [`docs/show-editor.md`](docs/show-editor.md).
 
-1. **Bridge zuerst starten.** Sie legt den virtuellen MIDI-Port `lightshow` an;
-   ohne laufende Bridge gibt es in Ardour nichts zu verbinden.
-2. Je Flugzeug ein MIDI-Track ohne Instrument, Ausgang auf `lightshow`.
-3. Am Track den ausgehenden **MIDI-Kanal erzwingen** — sonst senden alle Tracks
-   auf Kanal 1 und steuern dasselbe Modell.
-4. Vier Automationsspuren je Track (CC 20–23), Automationsmodus auf **Play**.
-5. `cue` als **Stufen** zeichnen, nicht als Rampe: eine Rampe löst beim
-   Durchlaufen alle Effekte dazwischen kurz aus.
+1. Projektnamen eingeben, **Anlegen**. Es entsteht `projects/<name>/` mit zwei
+   Audiospuren und einer Lichtspur je Modell und Zone — benannt nach dem Modell,
+   nicht nach CC-Nummern.
+2. Musik auf eine Audiospur ziehen. Die Datei wird ins Projekt kopiert, damit
+   der Ordner für sich allein lauffähig bleibt. WAV, FLAC, OGG und MP3.
+3. **Effekt einfügen** setzt einen Block auf die Lichtspur: Effekt, Farbe,
+   Helligkeit, Tempo, Ein- und Ausblendung. Ziehen verschiebt, an der Kante
+   längen, Doppelklick löscht.
+4. Leertaste startet und stoppt. Klick aufs Lineal springt an die Stelle.
+
+Blöcke auf einer Spur dürfen sich **nicht überlappen** — eine Zone zeigt immer
+genau einen Effekt, weil `cue` ein einzelner Kanal ist. Für einen Übergang den
+einen aus- und den nächsten einblenden lassen.
+
+Während der Wiedergabe ist die Modellkonfiguration gesperrt; der Editor selbst
+bleibt bedienbar und Speichern setzt die Wiedergabe nicht zurück.
+
+### Uhr und Synchronität
+
+Die Bridge mischt das Projekt einmal zusammen und spielt es über die Soundkarte.
+Ihre Abspielposition ist die Zeitreferenz für die Lichter — Ton und Licht kommen
+aus demselben Prozess und derselben Uhr und können nicht auseinanderlaufen. Die
+Position wird zwischen den Audio-Callbacks interpoliert und um die
+Ausgabelatenz korrigiert, damit sie zu dem passt, was hörbar ist.
+
+**Ohne Audiogerät läuft die Uhr trotzdem**, sodass sich eine Show auch auf einem
+Rechner ohne Audio vollständig prüfen lässt.
+
+### MIDI bleibt möglich
+
+Der virtuelle MIDI-Port existiert weiter. Läuft kein Transport, kommen die Werte
+von dort — für schnelle Versuche im Hangar oder eine bestehende Ardour-Session
+([`docs/ardour-setup.md`](docs/ardour-setup.md)). Startet die Wiedergabe,
+übernimmt die Timeline; nach dem Stoppen wieder MIDI. Ohne Umschalter.
 
 ---
 
@@ -426,8 +458,8 @@ cd host && ./.venv/bin/python -m lightshow --dry-run
 *Erwartet:* TUI mit einem Balken je Kanal, alle Werte auf ihren
 Failsafe-Positionen, `link: dry-run`.
 
-Dann Ardour verbinden und die Automation abspielen. Die Balken müssen der
-Automation folgen, `b` schaltet Blackout.
+Dann im Tab **Show** ein Projekt anlegen, einen Effekt-Block setzen und die
+Wiedergabe starten. Die Balken müssen den Blöcken folgen, `b` schaltet Blackout.
 
 *Damit belegt:* MIDI-Routing, Mapping, Quantisierung, Fades. Kostet nichts.
 
@@ -514,7 +546,7 @@ Modell im Flug, dann skalieren.
 cd host && ./.venv/bin/python -m pytest tests -v
 ```
 
-96 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
+150 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
 `tools/ctest/` kompiliert die **echten** Firmware-Quellen für den PC und prüft
 sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 
@@ -528,6 +560,9 @@ sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 | `test_relay_logic.py`  | Relais-Quellen und Mindestschaltzeiten der Bordfirmware       |
 | `test_planegen.py`     | generierte Bordkonfiguration, Anschlussliste, YAML-Roundtrip  |
 | `test_flasher.py`      | Bootloader-Erkennung, Kopiervorgang, Toolchain-Prüfung        |
+| `test_timeline.py`     | Effekt-Blöcke, Blenden, Projektformat                         |
+| `test_audio.py`        | Mixdown und die Transportuhr, mit und ohne Audiogerät         |
+| `test_session.py`      | woher die Kanalwerte kommen, Projektverwaltung                |
 
 Drei davon lohnen eine Erklärung:
 

@@ -28,6 +28,7 @@ WEB_ROOT = Path(__file__).parent / "web"
 # MIDI seen this recently means "a show is running" and the editor stays locked.
 SHOW_ACTIVE_S = 3.0
 GENERATED_DIR = "firmware/plane/generated"
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 
 def alsa_connections(port_name: str) -> list[str]:
@@ -67,10 +68,12 @@ def alsa_connections(port_name: str) -> list[str]:
 
 class Server:
     def __init__(self, show: config_module.ShowCfg, mapper, link, config_path: Path,
-                 repo_root: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
+                 repo_root: Path, session=None, host: str = "127.0.0.1",
+                 port: int = 8765) -> None:
         self.show = show
         self.mapper = mapper
         self.link = link
+        self.session = session
         self.config_path = Path(config_path)
         self.repo_root = Path(repo_root)
         self.host = host
@@ -91,6 +94,9 @@ class Server:
     # ------------------------------------------------------------------ state
 
     def show_running(self) -> bool:
+        """A show is running while the transport plays or MIDI keeps arriving."""
+        if self.session is not None and self.session.transport.playing:
+            return True
         return (time.monotonic() - self._last_message_at) < SHOW_ACTIVE_S
 
     def _refresh_counters(self) -> None:
@@ -114,12 +120,21 @@ class Server:
         self._refresh_counters()
         blackout, messages, slots = self.mapper.snapshot()
 
+        # The values actually being sent, whatever produced them. Falling back
+        # to the MIDI snapshot keeps this working without a session.
+        sent = self.session.last_frame if self.session is not None else None
+
         models: list[dict] = []
         for model in self.show.models:
             entries = []
-            for slot, value_us in slots:
+            for slot, snapshot_us in slots:
                 if slot.model is not model:
                     continue
+                value_us = snapshot_us
+                if sent is not None and slot.model.tx_port < len(sent):
+                    port_values = sent[slot.model.tx_port]
+                    if slot.port_index < len(port_values):
+                        value_us = port_values[slot.port_index]
                 span = max(1, slot.port.max_us - slot.port.min_us)
                 fraction = (value_us - slot.port.min_us) / span
                 decoded = f"{round(fraction * 100)} %"
@@ -135,7 +150,7 @@ class Server:
                     "us": value_us,
                     "fraction": round(fraction, 4),
                     "decoded": decoded,
-                    "live": slot.raw is not None,
+                    "live": slot.raw is not None or value_us != slot.channel.failsafe,
                 })
             models.append({
                 "name": model.name,
@@ -166,6 +181,7 @@ class Server:
             "rate_hz": self.show.rate_hz,
             "locked": self.show_running(),
             "models": models,
+            "transport": self.session.transport_state() if self.session else None,
         }
 
     # ----------------------------------------------------------------- config
@@ -225,6 +241,28 @@ class Server:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(payload["header"])
         return {"ok": True, "path": str(path)}
+
+    # -------------------------------------------------------------- transport
+
+    def transport_command(self, body: dict) -> dict:
+        if self.session is None:
+            return {"ok": False, "error": "keine Session aktiv"}
+        if self.session.project is None:
+            return {"ok": False, "error": "kein Projekt geöffnet"}
+
+        action = str(body.get("action", ""))
+        transport = self.session.transport
+        if action == "play":
+            transport.play(body.get("position"))
+        elif action == "pause":
+            transport.pause()
+        elif action == "stop":
+            transport.stop()
+        elif action == "seek":
+            transport.seek(float(body.get("position", 0)))
+        else:
+            return {"ok": False, "error": f"unbekannte Aktion '{action}'"}
+        return {"ok": True, "transport": self.session.transport_state()}
 
     # ------------------------------------------------------- build and flash
 
@@ -334,6 +372,12 @@ def _make_handler(server: Server):
                 self._json(payload)
             elif path == "/api/job":
                 self._json(server.job_state())
+            elif path == "/api/projects":
+                self._json({"projects": server.session.list_projects()
+                            if server.session else []})
+            elif path == "/api/project":
+                self._json({"project": server.session.project_payload()
+                            if server.session else None})
             elif path == "/api/events":
                 self._events()
             else:
@@ -377,6 +421,19 @@ def _make_handler(server: Server):
                 elif path.startswith("/api/plane/"):
                     name = unquote(path.split("/api/plane/")[1])
                     self._json(server.write_plane_header(name))
+                elif path == "/api/project/new":
+                    self._json(server.session.new_project(
+                        str(self._read_json().get("name", "")).strip() or "Show"))
+                elif path == "/api/project/open":
+                    self._json(server.session.open_project(
+                        str(self._read_json().get("dir", ""))))
+                elif path == "/api/project":
+                    self._json(server.session.save_project(
+                        self._read_json().get("project", {})))
+                elif path == "/api/transport":
+                    self._json(server.transport_command(self._read_json()))
+                elif path.startswith("/api/audio/"):
+                    self._upload_audio(unquote(path.split("/api/audio/")[1]))
                 elif path == "/api/job":
                     if not self._is_local():
                         self._json({"ok": False, "error":
@@ -390,5 +447,18 @@ def _make_handler(server: Server):
                     self._json({"error": "not found"}, 404)
             except json.JSONDecodeError as exc:
                 self._json({"ok": False, "error": f"ungültiges JSON: {exc}"}, 400)
+            except AttributeError:
+                # session is None when the bridge runs without projects
+                self._json({"ok": False, "error": "keine Session aktiv"}, 400)
+
+        def _upload_audio(self, filename: str) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > MAX_UPLOAD_BYTES:
+                self._json({"ok": False, "error":
+                            f"Datei zu groß ({length // 1_000_000} MB, erlaubt sind "
+                            f"{MAX_UPLOAD_BYTES // 1_000_000} MB)"}, 413)
+                return
+            data = self.rfile.read(length)
+            self._json(server.session.import_audio(filename, data))
 
     return Handler

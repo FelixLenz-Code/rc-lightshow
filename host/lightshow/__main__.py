@@ -66,11 +66,15 @@ def describe(show: config_module.ShowCfg) -> str:
     return "\n".join(lines)
 
 
-def run(show: config_module.ShowCfg, mapper: Mapper, link: PicoLink, monitor) -> None:
+def run(show: config_module.ShowCfg, mapper: Mapper, link: PicoLink, monitor,
+        session=None) -> None:
     period = 1.0 / show.rate_hz
     delay_frames = round(show.global_offset_ms / 1000.0 * show.rate_hz)
     history: deque[list[list[int]]] = deque()
     seq = 0
+    # With a project loaded the values come from its timeline while the
+    # transport runs, and from MIDI the rest of the time.
+    source = session.frame if session is not None else mapper.frame
 
     stopping = False
 
@@ -85,7 +89,7 @@ def run(show: config_module.ShowCfg, mapper: Mapper, link: PicoLink, monitor) ->
     while not stopping:
         link.poll()
 
-        history.append(mapper.frame())
+        history.append(source())
         if len(history) > delay_frames:
             seq = (seq + 1) & 0xFF
             link.send(seq, history.popleft())
@@ -150,12 +154,17 @@ def main(argv: list[str] | None = None) -> int:
     mapper = Mapper(show)
     link = PicoLink(show.serial_port, show.wire_ports(), dry_run=args.dry_run)
 
+    from .session import PROJECTS_DIR, Session
+
+    root = repo_root(args.config)
+    session = Session(show, mapper, link, projects_root=root / PROJECTS_DIR)
+
     web = None
     if not args.no_web:
         from .webui import Server
 
         web = Server(show, mapper, link, config_path=args.config,
-                     repo_root=repo_root(args.config),
+                     repo_root=root, session=session,
                      host=args.web_host, port=args.web_port)
         try:
             print(f"web interface: {web.start()}")
@@ -168,11 +177,12 @@ def main(argv: list[str] | None = None) -> int:
         with MidiInput(show.midi_port_name, mapper):
             if use_tui:
                 def wrapped(screen: "curses._CursesWindow") -> None:
-                    run(show, mapper, link, CursesMonitor(screen, show, mapper, link))
+                    run(show, mapper, link,
+                        CursesMonitor(screen, show, mapper, link, session), session)
 
                 curses.wrapper(wrapped)
             else:
-                run(show, mapper, link, PlainMonitor(show, mapper, link))
+                run(show, mapper, link, PlainMonitor(show, mapper, link, session), session)
     except OSError as exc:
         print(f"MIDI error: {exc}", file=sys.stderr)
         return 1

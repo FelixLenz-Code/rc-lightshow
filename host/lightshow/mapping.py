@@ -134,15 +134,23 @@ class Mapper:
                 )
             return values
 
-    def snapshot(self) -> tuple[bool, int, list[tuple[Slot, int]]]:
-        """(blackout, message count, [(slot, microseconds)]) for the monitor."""
+    def snapshot(self, sent: list[list[int]] | None = None
+                 ) -> tuple[bool, int, list[tuple[Slot, int]]]:
+        """(blackout, message count, [(slot, microseconds)]) for the monitor.
+
+        ``sent`` is the frame the sending loop last produced. Passing it makes
+        the monitor show what actually goes to the transmitters, which during a
+        running show comes from the project timeline rather than from MIDI.
+        """
         with self._lock:
             blackout = self.blackout
-            return (
-                blackout,
-                self.messages,
-                [
-                    (slot, slot.channel.failsafe if blackout else slot.microseconds())
-                    for slot in self.slots
-                ],
-            )
+            values = []
+            for slot in self.slots:
+                if sent is not None and slot.model.tx_port < len(sent):
+                    port_values = sent[slot.model.tx_port]
+                    if slot.port_index < len(port_values):
+                        values.append((slot, port_values[slot.port_index]))
+                        continue
+                values.append(
+                    (slot, slot.channel.failsafe if blackout else slot.microseconds()))
+            return blackout, self.messages, values

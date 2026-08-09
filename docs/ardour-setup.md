@@ -1,4 +1,12 @@
-# Ardour-Setup
+# Ardour-Setup (optional)
+
+> Seit dem eingebauten [Show-Editor](show-editor.md) ist Ardour **nicht mehr
+> nötig**: die Bridge spielt die Musik selbst und hält die Uhr. Dieser Weg
+> bleibt bestehen, falls du eine vorhandene Ardour-Session weiterverwenden oder
+> die Lichter aus einer laufenden DAW-Session steuern willst.
+>
+> Beide Wege koexistieren: Läuft kein Transport, kommen die Werte von MIDI.
+> Startet die Wiedergabe im Editor, übernimmt die Timeline.
 
 Die Show entsteht als MIDI-Automation. Ein Track je Flugzeug, vier
 Automationsspuren je Track — mehr Struktur braucht es nicht.

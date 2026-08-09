@@ -23,11 +23,12 @@ class CursesMonitor:
     """Returns 'quit' or 'blackout' from poll_key(), None otherwise."""
 
     def __init__(self, screen: "curses._CursesWindow", show: ShowCfg,
-                 mapper: Mapper, link: PicoLink) -> None:
+                 mapper: Mapper, link: PicoLink, session=None) -> None:
         self.screen = screen
         self.show = show
         self.mapper = mapper
         self.link = link
+        self.session = session
         self._last_draw = 0.0
 
         curses.curs_set(0)
@@ -50,7 +51,8 @@ class CursesMonitor:
             return
         self._last_draw = now
 
-        blackout, messages, slots = self.mapper.snapshot()
+        sent = self.session.last_frame if self.session else None
+        blackout, messages, slots = self.mapper.snapshot(sent)
         screen = self.screen
         height, width = screen.getmaxyx()
         screen.erase()
@@ -126,10 +128,12 @@ class CursesMonitor:
 class PlainMonitor:
     """Fallback for non-interactive terminals: one summary line per second."""
 
-    def __init__(self, show: ShowCfg, mapper: Mapper, link: PicoLink) -> None:
+    def __init__(self, show: ShowCfg, mapper: Mapper, link: PicoLink,
+                 session=None) -> None:
         self.show = show
         self.mapper = mapper
         self.link = link
+        self.session = session
         self._last = 0.0
 
     def poll_key(self) -> str | None:
@@ -141,7 +145,8 @@ class PlainMonitor:
             return
         self._last = now
 
-        blackout, messages, slots = self.mapper.snapshot()
+        sent = self.session.last_frame if self.session else None
+        blackout, messages, slots = self.mapper.snapshot(sent)
         values = " ".join(
             f"{slot.model.name}.{slot.channel.role}={value}" for slot, value in slots
         )

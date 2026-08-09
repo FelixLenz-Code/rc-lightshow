@@ -85,6 +85,56 @@ pre {
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .hidden { display: none !important; }
 .tagline { font-size: 12.5px; color: var(--muted); margin: -6px 0 12px; }
+
+/* ------------------------------------------------------------- timeline */
+.clock {
+  font-variant-numeric: tabular-nums; font-size: 19px; font-weight: 600;
+  min-width: 92px; text-align: center;
+}
+.timeline { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.tl-heads { flex: none; width: 170px; border-right: 1px solid var(--line); background: var(--bg); }
+.tl-heads .head {
+  height: 56px; padding: 6px 9px; border-bottom: 1px solid var(--line);
+  font-size: 12.5px; display: flex; flex-direction: column; justify-content: center;
+  gap: 2px; overflow: hidden;
+}
+.tl-heads .head:first-child { height: 24px; border-bottom: 1px solid var(--line); }
+.tl-heads .head b { font-size: 13px; }
+.tl-scroll { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; }
+.tl-inner { position: relative; min-width: 100%; }
+.tl-ruler {
+  height: 24px; position: relative; border-bottom: 1px solid var(--line);
+  background: var(--bg); cursor: pointer; user-select: none;
+}
+.tl-ruler .tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+.tl-ruler .tick span { position: absolute; left: 3px; top: 3px; font-size: 10.5px; color: var(--muted); }
+.lane { height: 56px; border-bottom: 1px solid var(--line); position: relative; }
+.lane.audio { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.lane.drop { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.clip, .block {
+  position: absolute; top: 4px; bottom: 4px; border-radius: 6px;
+  overflow: hidden; cursor: grab; border: 1px solid rgba(0,0,0,.25);
+  font-size: 11.5px; user-select: none;
+}
+.clip { background: color-mix(in srgb, var(--accent) 30%, var(--panel)); }
+.clip .label, .block .label {
+  position: absolute; left: 6px; top: 3px; right: 6px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0,0,0,.45); color: #fff;
+}
+.clip svg { width: 100%; height: 100%; display: block; opacity: .75; }
+.block.selected { outline: 2px solid var(--text); outline-offset: -2px; }
+.grip { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+.grip.left { left: 0; } .grip.right { right: 0; }
+.fade { position: absolute; top: 0; bottom: 0; pointer-events: none;
+        background: linear-gradient(to right, rgba(0,0,0,.55), rgba(0,0,0,0)); }
+.fade.out { background: linear-gradient(to left, rgba(0,0,0,.55), rgba(0,0,0,0)); }
+.playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px; background: var(--bad);
+  pointer-events: none; z-index: 3;
+}
+.field { display: inline-flex; flex-direction: column; gap: 3px; margin: 0 12px 10px 0; }
+.field label { font-size: 11.5px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -99,14 +149,65 @@ pre {
 </header>
 
 <nav>
-  <button class="tab" data-tab="live" aria-selected="true">Live</button>
+  <button class="tab" data-tab="show" aria-selected="true">Show</button>
+  <button class="tab" data-tab="live" aria-selected="false">Live</button>
   <button class="tab" data-tab="models" aria-selected="false">Modelle</button>
   <button class="tab" data-tab="wiring" aria-selected="false">Anschluss</button>
 </nav>
 
 <main>
+  <!-- ------------------------------------------------------------- Show -->
+  <div id="tab-show">
+    <section class="panel">
+      <div class="row">
+        <select id="project-select" title="Projekt öffnen"></select>
+        <button id="btn-project-open">Öffnen</button>
+        <input type="text" id="project-name" placeholder="Neues Projekt" style="width:170px">
+        <button id="btn-project-new">Anlegen</button>
+        <span class="spacer"></span>
+        <button id="btn-project-save" class="primary">Speichern</button>
+      </div>
+      <div id="project-banner" class="banner hidden" style="margin-top:12px"></div>
+    </section>
+
+    <section class="panel" id="editor-panel">
+      <div class="row" style="margin-bottom:10px">
+        <button id="btn-play" class="primary" title="Leertaste">▶︎</button>
+        <button id="btn-pause" title="Leertaste">❚❚</button>
+        <button id="btn-stop">■</button>
+        <span class="clock" id="clock">0:00,0</span>
+        <span class="muted small" id="transport-note"></span>
+        <span class="spacer"></span>
+        <label class="small muted" for="zoom">Zoom</label>
+        <input type="range" id="zoom" min="4" max="200" value="40" style="width:130px">
+        <button id="btn-add-block">Effekt einfügen</button>
+      </div>
+
+      <div id="timeline" class="timeline">
+        <div class="tl-heads" id="tl-heads"></div>
+        <div class="tl-scroll" id="tl-scroll">
+          <div class="tl-inner" id="tl-inner">
+            <div class="tl-ruler" id="tl-ruler"></div>
+            <div id="tl-lanes"></div>
+            <div class="playhead" id="playhead"></div>
+          </div>
+        </div>
+      </div>
+      <p class="tagline" style="margin-top:10px">
+        Audiodateien einfach auf eine Audiospur ziehen. Effekt-Blöcke lassen sich
+        verschieben, an den Kanten längen und mit Doppelklick löschen.
+        Klick auf das Lineal springt an die Stelle.
+      </p>
+    </section>
+
+    <section class="panel hidden" id="inspector">
+      <h2 id="insp-title">Block</h2>
+      <div id="insp-body"></div>
+    </section>
+  </div>
+
   <!-- ------------------------------------------------------------- Live -->
-  <div id="tab-live">
+  <div id="tab-live" class="hidden">
     <section class="panel">
       <h2>Verbindungen</h2>
       <div class="scroll"><table>
@@ -176,11 +277,405 @@ document.querySelectorAll('nav .tab').forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll('nav .tab').forEach(b =>
       b.setAttribute('aria-selected', String(b === btn)));
-    ['live', 'models', 'wiring'].forEach(name =>
+    ['show', 'live', 'models', 'wiring'].forEach(name =>
       $('tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab));
     if (btn.dataset.tab === 'wiring') { loadWiring(); refreshToolchain(); }
+    if (btn.dataset.tab === 'show') drawTimeline();
   };
 });
+
+/* ================================================================= Editor */
+let PROJ = null;         // the project data being edited
+let PEAKS = [];          // waveform peaks per clip, from the server
+let CUES = [];           // effect names
+let SEL = null;          // {kind:'block'|'clip', track, index}
+let PPS = 40;            // pixels per second
+let DIRTY = false;
+let SEEK_HINT = null;    // position shown while dragging, before the server answers
+
+const fmtTime = (s) => {
+  s = Math.max(0, s || 0);
+  const m = Math.floor(s / 60), rest = s - m * 60;
+  return `${m}:${rest.toFixed(1).padStart(4, '0').replace('.', ',')}`;
+};
+const duration = () => {
+  let end = 30;
+  if (!PROJ) return end;
+  for (const t of PROJ.audio_tracks || [])
+    for (const c of t.clips || []) end = Math.max(end, c.start_s + c.duration_s);
+  for (const t of PROJ.light_tracks || [])
+    for (const b of t.blocks || []) end = Math.max(end, b.start_s + b.duration_s);
+  return end + 10;
+};
+const blockColour = (b) => {
+  const hue = Math.round((b.hue / 255) * 360);
+  const light = 22 + Math.round((b.brightness / 255) * 34);
+  return b.cue === 0 ? 'var(--barbg)' : `hsl(${hue} 70% ${light}%)`;
+};
+const cueName = (n) => CUES[n] || `Effekt ${n}`;
+
+function markDirty() {
+  DIRTY = true;
+  const banner = $('project-banner');
+  banner.className = 'banner lock';
+  banner.textContent = 'Ungespeicherte Änderungen.';
+  banner.classList.remove('hidden');
+}
+
+/* ----------------------------------------------------------- projects */
+async function loadProjects() {
+  const r = await fetch('/api/projects').then(r => r.json());
+  $('project-select').innerHTML = r.projects.map(p =>
+    `<option value="${esc(p.dir)}">${esc(p.name)}</option>`).join('')
+    || '<option value="">— keine Projekte —</option>';
+}
+
+function applyProject(payload) {
+  if (!payload) { PROJ = null; $('editor-panel').classList.add('hidden'); return; }
+  PROJ = payload.data;
+  PEAKS = payload.peaks || [];
+  CUES = payload.cue_names || [];
+  DIRTY = false;
+  SEL = null;
+  $('editor-panel').classList.remove('hidden');
+  $('project-name').value = '';
+
+  const notes = [...(payload.warnings || []), ...(payload.audio_messages || [])];
+  const banner = $('project-banner');
+  if (notes.length) {
+    banner.className = 'banner err';
+    banner.innerHTML = notes.map(esc).join('<br>');
+    banner.classList.remove('hidden');
+  } else banner.classList.add('hidden');
+
+  drawTimeline();
+  renderInspector();
+}
+
+async function loadProject() {
+  const r = await fetch('/api/project').then(r => r.json());
+  applyProject(r.project);
+}
+
+$('btn-project-open').onclick = async () => {
+  const dir = $('project-select').value;
+  if (!dir) return;
+  const r = await fetch('/api/project/open', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({dir})}).then(r => r.json());
+  if (r.ok) applyProject(r.project); else showError(r.error);
+};
+
+$('btn-project-new').onclick = async () => {
+  const name = $('project-name').value.trim();
+  if (!name) return showError('Bitte einen Namen eingeben.');
+  const r = await fetch('/api/project/new', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name})}).then(r => r.json());
+  if (r.ok) { await loadProjects(); applyProject(r.project); } else showError(r.error);
+};
+
+$('btn-project-save').onclick = async () => {
+  if (!PROJ) return;
+  const r = await fetch('/api/project', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({project: PROJ})}).then(r => r.json());
+  if (!r.ok) return showError(r.error);
+  applyProject(r.project);
+  const banner = $('project-banner');
+  banner.className = 'banner ok';
+  banner.textContent = 'Gespeichert.';
+  banner.classList.remove('hidden');
+};
+
+function showError(text) {
+  const banner = $('project-banner');
+  banner.className = 'banner err';
+  banner.textContent = text;
+  banner.classList.remove('hidden');
+}
+
+/* ----------------------------------------------------------- rendering */
+function drawTimeline() {
+  if (!PROJ) return;
+  PPS = +$('zoom').value;
+  const total = duration();
+  const width = Math.max(600, total * PPS);
+  $('tl-inner').style.width = width + 'px';
+
+  // ruler
+  const step = PPS >= 80 ? 1 : PPS >= 30 ? 5 : PPS >= 12 ? 15 : 30;
+  let ticks = '';
+  for (let t = 0; t <= total; t += step)
+    ticks += `<div class="tick" style="left:${t * PPS}px"><span>${fmtTime(t)}</span></div>`;
+  $('tl-ruler').innerHTML = ticks;
+
+  // heads and lanes
+  let heads = '<div class="head"></div>';
+  let lanes = '';
+  (PROJ.audio_tracks || []).forEach((track, ti) => {
+    heads += `<div class="head"><b>${esc(track.name)}</b>
+      <span class="muted">Audio${track.mute ? ' · stumm' : ''}</span></div>`;
+    lanes += `<div class="lane audio" data-audio="${ti}">
+      ${(track.clips || []).map((c, ci) => clipHtml(c, ti, ci)).join('')}</div>`;
+  });
+  (PROJ.light_tracks || []).forEach((track, ti) => {
+    heads += `<div class="head"><b>${esc(track.name || track.model)}</b>
+      <span class="muted">${esc(track.model)} · Zone ${track.zone + 1}</span></div>`;
+    lanes += `<div class="lane" data-light="${ti}">
+      ${(track.blocks || []).map((b, bi) => blockHtml(b, ti, bi)).join('')}</div>`;
+  });
+  $('tl-heads').innerHTML = heads;
+  $('tl-lanes').innerHTML = lanes;
+  wireLanes();
+}
+
+function clipHtml(clip, ti, ci) {
+  const info = PEAKS.find(p => p.track === ti && p.clip === ci);
+  const dur = clip.duration_s || (info ? info.duration_s : 0);
+  const width = Math.max(2, dur * PPS);
+  let wave = '';
+  if (info && info.peaks.length) {
+    const pts = info.peaks.map((v, i) =>
+      `${(i / (info.peaks.length - 1) * 100).toFixed(2)},${(50 - v * 48).toFixed(1)}`).join(' ');
+    const back = info.peaks.map((v, i) =>
+      `${((info.peaks.length - 1 - i) / (info.peaks.length - 1) * 100).toFixed(2)},${(50 + v * 48).toFixed(1)}`).join(' ');
+    wave = `<svg viewBox="0 0 100 100" preserveAspectRatio="none">
+      <polygon points="${pts} ${back}" fill="currentColor"/></svg>`;
+  }
+  const fades = fadeHtml(clip, width);
+  return `<div class="clip" data-kind="clip" data-track="${ti}" data-index="${ci}"
+     style="left:${clip.start_s * PPS}px;width:${width}px">
+     ${wave}<div class="label">${esc(clip.file.replace('audio/', ''))}</div>${fades}
+     <div class="grip left"></div><div class="grip right"></div></div>`;
+}
+
+function blockHtml(block, ti, bi) {
+  const width = Math.max(3, block.duration_s * PPS);
+  const selected = SEL && SEL.kind === 'block' && SEL.track === ti && SEL.index === bi;
+  return `<div class="block${selected ? ' selected' : ''}" data-kind="block"
+     data-track="${ti}" data-index="${bi}"
+     style="left:${block.start_s * PPS}px;width:${width}px;background:${blockColour(block)}">
+     <div class="label">${esc(block.label || cueName(block.cue))}</div>
+     ${fadeHtml(block, width)}
+     <div class="grip left"></div><div class="grip right"></div></div>`;
+}
+
+const fadeHtml = (item, width) =>
+  (item.fade_in_s > 0 ? `<div class="fade" style="left:0;width:${Math.min(width, item.fade_in_s * PPS)}px"></div>` : '')
+  + (item.fade_out_s > 0 ? `<div class="fade out" style="right:0;width:${Math.min(width, item.fade_out_s * PPS)}px"></div>` : '');
+
+/* -------------------------------------------------------- interaction */
+function wireLanes() {
+  $('tl-lanes').querySelectorAll('.clip, .block').forEach(el => {
+    el.onpointerdown = (e) => startDrag(e, el);
+    el.ondblclick = () => removeItem(el);
+    el.onclick = (e) => { e.stopPropagation(); select(el); };
+  });
+
+  // Dropping audio files onto an audio lane
+  $('tl-lanes').querySelectorAll('.lane.audio').forEach(lane => {
+    lane.ondragover = (e) => { e.preventDefault(); lane.classList.add('drop'); };
+    lane.ondragleave = () => lane.classList.remove('drop');
+    lane.ondrop = (e) => {
+      e.preventDefault();
+      lane.classList.remove('drop');
+      const at = Math.max(0, (e.offsetX || 0) / PPS);
+      for (const file of e.dataTransfer.files) uploadAudio(file, +lane.dataset.audio, at);
+    };
+  });
+}
+
+function itemOf(el) {
+  const ti = +el.dataset.track, index = +el.dataset.index;
+  return el.dataset.kind === 'clip'
+    ? PROJ.audio_tracks[ti].clips[index]
+    : PROJ.light_tracks[ti].blocks[index];
+}
+
+function select(el) {
+  SEL = {kind: el.dataset.kind, track: +el.dataset.track, index: +el.dataset.index};
+  drawTimeline();
+  renderInspector();
+}
+
+function removeItem(el) {
+  const ti = +el.dataset.track, index = +el.dataset.index;
+  if (el.dataset.kind === 'clip') PROJ.audio_tracks[ti].clips.splice(index, 1);
+  else PROJ.light_tracks[ti].blocks.splice(index, 1);
+  SEL = null;
+  markDirty(); drawTimeline(); renderInspector();
+}
+
+function startDrag(event, el) {
+  const mode = event.target.classList.contains('grip')
+    ? (event.target.classList.contains('left') ? 'left' : 'right') : 'move';
+  const item = itemOf(el);
+  const startX = event.clientX;
+  const original = {start: item.start_s, dur: item.duration_s};
+  el.setPointerCapture(event.pointerId);
+  event.preventDefault();
+
+  el.onpointermove = (move) => {
+    const delta = (move.clientX - startX) / PPS;
+    if (mode === 'move') {
+      item.start_s = Math.max(0, original.start + delta);
+    } else if (mode === 'left') {
+      const shift = Math.min(delta, original.dur - 0.1);
+      item.start_s = Math.max(0, original.start + shift);
+      item.duration_s = original.dur - (item.start_s - original.start);
+    } else {
+      item.duration_s = Math.max(0.1, original.dur + delta);
+    }
+    el.style.left = item.start_s * PPS + 'px';
+    el.style.width = Math.max(3, item.duration_s * PPS) + 'px';
+  };
+  el.onpointerup = () => {
+    el.onpointermove = el.onpointerup = null;
+    item.start_s = Math.round(item.start_s * 100) / 100;
+    item.duration_s = Math.round(item.duration_s * 100) / 100;
+    markDirty(); drawTimeline(); renderInspector();
+  };
+}
+
+/* --------------------------------------------------------- inspector */
+function renderInspector() {
+  const panel = $('inspector');
+  if (!SEL || !PROJ) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+
+  if (SEL.kind === 'clip') {
+    const clip = PROJ.audio_tracks[SEL.track].clips[SEL.index];
+    $('insp-title').textContent = 'Audioclip: ' + clip.file.replace('audio/', '');
+    $('insp-body').innerHTML = [
+      num('Start (s)', clip.start_s, 'start_s', 0.01),
+      num('Länge (s)', clip.duration_s, 'duration_s', 0.01),
+      num('Startpunkt in der Datei (s)', clip.offset_s, 'offset_s', 0.01),
+      num('Lautstärke (dB)', clip.gain_db, 'gain_db', 0.5, -60, 12),
+      num('Einblenden (s)', clip.fade_in_s, 'fade_in_s', 0.1),
+      num('Ausblenden (s)', clip.fade_out_s, 'fade_out_s', 0.1),
+    ].join('');
+  } else {
+    const block = PROJ.light_tracks[SEL.track].blocks[SEL.index];
+    $('insp-title').textContent = 'Effekt auf ' +
+      (PROJ.light_tracks[SEL.track].name || PROJ.light_tracks[SEL.track].model);
+    $('insp-body').innerHTML = `
+      <div class="field"><label>Effekt</label>
+        <select onchange="setField('cue', +this.value)">
+          ${CUES.map((name, i) => `<option value="${i}" ${block.cue === i ? 'selected' : ''}>${i}: ${esc(name)}</option>`).join('')}
+        </select></div>
+      <div class="field"><label>Beschriftung</label>
+        <input type="text" value="${esc(block.label)}" oninput="setField('label', this.value)"></div>
+      ` + [
+      num('Start (s)', block.start_s, 'start_s', 0.05),
+      num('Länge (s)', block.duration_s, 'duration_s', 0.05),
+      num('Farbe (0–255)', block.hue, 'hue', 1, 0, 255),
+      num('Helligkeit (0–255)', block.brightness, 'brightness', 1, 0, 255),
+      num('Tempo (0–255)', block.param, 'param', 1, 0, 255),
+      num('Einblenden (s)', block.fade_in_s, 'fade_in_s', 0.1),
+      num('Ausblenden (s)', block.fade_out_s, 'fade_out_s', 0.1),
+    ].join('') + `<p class="small muted">Doppelklick auf den Block löscht ihn.</p>`;
+  }
+}
+
+const num = (label, value, key, step, min = 0, max = 100000) =>
+  `<div class="field"><label>${label}</label><input type="number" value="${value}"
+    step="${step}" min="${min}" max="${max}" oninput="setField('${key}', +this.value)"></div>`;
+
+function setField(key, value) {
+  if (!SEL) return;
+  const item = SEL.kind === 'clip'
+    ? PROJ.audio_tracks[SEL.track].clips[SEL.index]
+    : PROJ.light_tracks[SEL.track].blocks[SEL.index];
+  item[key] = value;
+  markDirty();
+  drawTimeline();
+}
+
+$('btn-add-block').onclick = () => {
+  if (!PROJ || !(PROJ.light_tracks || []).length) return;
+  const ti = SEL && SEL.kind === 'block' ? SEL.track : 0;
+  const at = Math.round((SEEK_HINT !== null ? SEEK_HINT : 0) * 100) / 100;
+  const track = PROJ.light_tracks[ti];
+  const block = {start_s: at, duration_s: 4, cue: 1, hue: 0, brightness: 255,
+                 param: 128, fade_in_s: 0.5, fade_out_s: 0.5, label: ''};
+  // Slide to the first free spot so the project stays loadable.
+  const sorted = [...track.blocks].sort((a, b) => a.start_s - b.start_s);
+  for (const other of sorted) {
+    const end = other.start_s + other.duration_s;
+    if (block.start_s < end && other.start_s < block.start_s + block.duration_s)
+      block.start_s = end;
+  }
+  track.blocks.push(block);
+  track.blocks.sort((a, b) => a.start_s - b.start_s);
+  SEL = {kind: 'block', track: ti, index: track.blocks.indexOf(block)};
+  markDirty(); drawTimeline(); renderInspector();
+};
+
+/* ---------------------------------------------------------- transport */
+const post = (url, body) => fetch(url, {method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify(body || {})}).then(r => r.json());
+
+$('btn-play').onclick = () => post('/api/transport', {action: 'play'})
+  .then(r => { if (!r.ok) showError(r.error); });
+$('btn-pause').onclick = () => post('/api/transport', {action: 'pause'});
+$('btn-stop').onclick = () => post('/api/transport', {action: 'stop'});
+$('zoom').oninput = drawTimeline;
+
+$('tl-ruler').onclick = (e) => {
+  const at = e.offsetX / PPS;
+  SEEK_HINT = at;
+  post('/api/transport', {action: 'seek', position: at});
+};
+
+document.addEventListener('keydown', (e) => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    const playing = LAST_STATE && LAST_STATE.transport && LAST_STATE.transport.playing;
+    post('/api/transport', {action: playing ? 'pause' : 'play'});
+  }
+  if (e.key === 'Delete' && SEL) {
+    const el = $('tl-lanes').querySelector(
+      `[data-kind="${SEL.kind}"][data-track="${SEL.track}"][data-index="${SEL.index}"]`);
+    if (el) removeItem(el);
+  }
+});
+
+function renderTransport(t) {
+  if (!t) return;
+  const at = SEEK_HINT !== null && !t.playing ? SEEK_HINT : t.position;
+  if (t.playing) SEEK_HINT = null;
+  $('clock').textContent = fmtTime(at);
+  $('playhead').style.left = (at * PPS) + 'px';
+  $('btn-play').disabled = t.playing;
+  $('btn-pause').disabled = !t.playing;
+
+  let note = t.project ? '' : 'kein Projekt geöffnet';
+  if (t.project && !t.device) note = 'kein Audiogerät — Uhr läuft trotzdem';
+  if (t.playing && t.source === 'timeline') note = 'Show läuft, Licht aus der Timeline';
+  $('transport-note').textContent = note;
+}
+
+/* --------------------------------------------------------- audio drop */
+async function uploadAudio(file, trackIndex, at) {
+  const banner = $('project-banner');
+  banner.className = 'banner lock';
+  banner.textContent = `${file.name} wird geladen …`;
+  banner.classList.remove('hidden');
+
+  const r = await fetch('/api/audio/' + encodeURIComponent(file.name),
+    {method: 'POST', body: await file.arrayBuffer()}).then(r => r.json());
+  if (!r.ok) return showError(r.error);
+
+  PROJ.audio_tracks[trackIndex].clips.push({
+    file: r.file, start_s: Math.round(at * 100) / 100, offset_s: 0,
+    duration_s: r.duration_s, gain_db: 0, fade_in_s: 0, fade_out_s: 0});
+  markDirty();
+  // Saving right away gives us the waveform back from the server.
+  $('btn-project-save').click();
+}
 
 /* ----------------------------------------------------------- live status */
 function renderStatus(s) {
@@ -233,6 +728,7 @@ function renderStatus(s) {
         </tr>`).join('')}</tbody>
     </table></div>`).join('');
 
+  renderTransport(s.transport);
   if (LOCKED !== s.locked) { LOCKED = s.locked; applyLock(); }
 }
 
@@ -537,6 +1033,8 @@ events.onerror = () => {
   $('txt-midi').textContent = 'Bridge nicht erreichbar';
 };
 loadConfig();
+loadProjects();
+loadProject();
 </script>
 </body>
 </html>

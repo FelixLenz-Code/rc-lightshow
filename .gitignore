@@ -9,3 +9,5 @@ __pycache__/
 *.bin
 firmware/plane/generated/
 *.yaml.bak
+projects/
+*.json.bak
