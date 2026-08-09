@@ -74,7 +74,7 @@ zwei Sender, nicht acht.
 - Beide Firmwares kompilieren warnungsfrei (`-Wall -Wextra` auf den eigenen Targets)
 - Web-UI mit Live-Status, Modelleditor, Anschlussübersicht sowie Bauen und
   Aufspielen der Firmware
-- 91 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
+- 96 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
   Protokolls, eine Verifikation der PPM-Timing-Rechnung und ein Compiler-Lauf
   über die generierte Bordkonfiguration
 
@@ -139,6 +139,34 @@ Boards gleichzeitig im Bootloader, bricht sie ab statt zu raten.
 > Bauen und Flashen führen Befehle aus und sind deshalb **nur von localhost**
 > erlaubt. Über `--web-host 0.0.0.0` sieht man die Oberfläche zwar, aber die
 > Knöpfe antworten mit 403.
+
+### Jedes Modell bekommt seine eigene Firmware
+
+Jedes Flugzeug darf andere Lichter haben — andere Strips, andere Pixelzahlen,
+andere Relais, andere Pins, andere Kanäle. Aus jedem Modell entsteht ein
+eigener Header, ein eigenes Build-Verzeichnis und ein eigenes Image:
+
+```
+firmware/plane/generated/eule.h    → build/plane-eule/lightshow_plane_eule.uf2
+firmware/plane/generated/falke.h   → build/plane-falke/lightshow_plane_falke.uf2
+```
+
+In der UI wählt die Modellauswahl im Anschluss-Tab, was gebaut und aufgespielt
+wird. Auf der Kommandozeile derselbe Weg mit `--generate <modell>` und
+`-DPLANE_CONFIG=generated/<modell>.h`.
+
+> **Wichtig:** Die Modelle unterscheiden sich nicht nur in den Lichtern, sondern
+> auch in der **Pinbelegung**. Ein falsch aufgespieltes Image lässt ein Relais
+> etwas anderes schalten, als auf diesem Rumpf angeschlossen ist. Deshalb heißt
+> jedes Image nach seinem Modell, und die Bordfirmware meldet beim Start auf der
+> Debug-Konsole, für welches Modell sie gebaut wurde:
+>
+> ```
+> lightshow plane: model=eule zones=1 strips=2 relays=2
+> ```
+>
+> Danach steht der Modellname in jeder Statuszeile. Wer nicht mehr weiß, was auf
+> einem Board läuft, hängt die Konsole an GP0/GP1 und liest nach.
 
 ### Warum die Bordkonfiguration generiert wird
 
@@ -307,7 +335,7 @@ Ergebnis:
 | Datei                            | Ziel                    | Größe            |
 |----------------------------------|-------------------------|------------------|
 | `build/pico/lightshow_tx.uf2`    | Pico an der Bodenstation| 46 KB Flash      |
-| `build/plane/lightshow_plane.uf2`| Pico im Modell          | 31 KB Flash      |
+| `build/plane-<modell>/lightshow_plane_<modell>.uf2` | Pico im Modell | 31 KB Flash |
 
 Beide Firmwares bauen per Default für den Raspberry Pi Pico; ein anderes Board
 über `-DPICO_BOARD=<name>`.
@@ -486,7 +514,7 @@ Modell im Flug, dann skalieren.
 cd host && ./.venv/bin/python -m pytest tests -v
 ```
 
-91 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
+96 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
 `tools/ctest/` kompiliert die **echten** Firmware-Quellen für den PC und prüft
 sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 

@@ -17,6 +17,10 @@
 #include PLANE_CONFIG_HEADER
 #else
 
+// Name reported at boot. A generated header carries the real model name.
+#define PLANE_MODEL_NAME "beispiel"
+
+
 // ---------------------------------------------------------------- general ---
 
 #define RENDER_HZ 200   // effect update rate, independent of the RC rate

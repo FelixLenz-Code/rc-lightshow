@@ -172,11 +172,26 @@ def build_plane(job: Job, repo: Path, model: str) -> None:
     if ok:
         ok = _run(job, ["cmake", "--build", build_dir, "-j4"], repo)
 
-    artefact = repo / build_dir / "lightshow_plane.uf2"
-    if ok and artefact.is_file():
+    artefact = plane_image(repo, model)
+    if ok and artefact is not None:
         job.finish(True, f"fertig: {artefact}")
     else:
         job.finish(False, "Build fehlgeschlagen")
+
+
+def plane_image(repo: Path, model: str) -> Path | None:
+    """The built image for a model, if there is one.
+
+    Images are named after the model so four aircraft cannot end up with four
+    identically named files -- and the pin assignment differs per model, so
+    flashing the wrong one is not a cosmetic mistake.
+    """
+    build_dir = repo / f"build/plane-{model}"
+    for name in (f"lightshow_plane_{model}.uf2", "lightshow_plane.uf2"):
+        candidate = build_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def build_ground(job: Job, repo: Path) -> None:

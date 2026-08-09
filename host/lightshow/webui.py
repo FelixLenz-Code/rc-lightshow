@@ -249,7 +249,11 @@ class Server:
             target = lambda: flasher.build_ground(job, self.repo_root)  # noqa: E731
         elif kind == "flash-plane":
             job = flasher.Job(f"Bordfirmware aufspielen: {model}")
-            uf2 = self.repo_root / f"build/plane-{model}" / "lightshow_plane.uf2"
+            uf2 = flasher.plane_image(self.repo_root, model)
+            if uf2 is None:
+                return {"ok": False,
+                        "error": f"Für '{model}' ist noch keine Firmware gebaut."}
+            job.log(f"Modell '{model}': {uf2.name}")
             # The airborne board has no USB stdio, so it cannot be reset from here.
             target = lambda: flasher.flash(job, uf2, None)  # noqa: E731
         elif kind == "flash-ground":

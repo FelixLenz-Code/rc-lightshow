@@ -126,6 +126,27 @@ def test_job_log_is_capped_so_a_long_build_cannot_grow_forever():
     assert state["lines"][-1] == "line 999"
 
 
+def test_image_lookup_prefers_the_model_named_file(tmp_path):
+    build = tmp_path / "build" / "plane-eule"
+    build.mkdir(parents=True)
+    (build / "lightshow_plane_eule.uf2").write_bytes(b"neu")
+    (build / "lightshow_plane.uf2").write_bytes(b"alt")
+    assert flasher.plane_image(tmp_path, "eule").name == "lightshow_plane_eule.uf2"
+
+
+def test_image_lookup_reports_nothing_when_not_built(tmp_path):
+    assert flasher.plane_image(tmp_path, "eule") is None
+
+
+def test_each_model_has_its_own_build_directory(tmp_path):
+    for name in ("eule", "falke"):
+        build = tmp_path / "build" / f"plane-{name}"
+        build.mkdir(parents=True)
+        (build / f"lightshow_plane_{name}.uf2").write_bytes(name.encode())
+    assert flasher.plane_image(tmp_path, "eule").read_bytes() == b"eule"
+    assert flasher.plane_image(tmp_path, "falke").read_bytes() == b"falke"
+
+
 def test_build_refuses_without_a_generated_header(tmp_path, monkeypatch):
     monkeypatch.setattr(flasher, "toolchain_status",
                         lambda: {"ok": True, "missing": [], "hint": ""})

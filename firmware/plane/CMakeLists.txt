@@ -32,7 +32,14 @@ target_include_directories(lightshow_plane PRIVATE src ${CMAKE_CURRENT_LIST_DIR}
 if(DEFINED PLANE_CONFIG)
     target_compile_definitions(lightshow_plane PRIVATE
         PLANE_CONFIG_HEADER="${PLANE_CONFIG}")
-    message(STATUS "Plane configuration: ${PLANE_CONFIG}")
+
+    # Name the image after the model. With several aircraft in the hangar, a
+    # file called lightshow_plane.uf2 in four build directories is asking for
+    # the wrong one to be flashed -- and the pin assignment differs per model.
+    get_filename_component(PLANE_MODEL "${PLANE_CONFIG}" NAME_WE)
+    set_target_properties(lightshow_plane PROPERTIES
+        OUTPUT_NAME "lightshow_plane_${PLANE_MODEL}")
+    message(STATUS "Plane configuration: ${PLANE_CONFIG} -> lightshow_plane_${PLANE_MODEL}.uf2")
 else()
     message(STATUS "Plane configuration: built-in example from src/config.h")
 endif()

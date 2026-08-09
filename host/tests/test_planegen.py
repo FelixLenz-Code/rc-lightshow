@@ -70,6 +70,21 @@ def test_cue_steps_follow_the_quantize_setting(show):
     assert defines(planegen.generate(show, model(show, "eule")))["CUE_STEPS"] == "32"
 
 
+def test_each_image_carries_its_own_model_name(show):
+    """The board reports this at boot, so a wrongly flashed image shows up."""
+    for name in ("eule", "falke"):
+        header = defines(planegen.generate(show, model(show, name)))
+        assert header["PLANE_MODEL_NAME"] == f'"{name}"'
+
+
+def test_models_really_differ_in_the_generated_output(show):
+    """Two aircraft with different lights must not produce the same header."""
+    eule = planegen.generate(show, model(show, "eule"))
+    falke = planegen.generate(show, model(show, "falke"))
+    assert eule != falke
+    assert defines(eule)["STRIP_COUNT"] != defines(falke)["STRIP_COUNT"]
+
+
 def test_generated_guard_does_not_clash_with_config_h(show):
     """config.h includes the generated file, so the guards must differ."""
     header = planegen.generate(show, model(show, "eule"))

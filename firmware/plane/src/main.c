@@ -34,6 +34,11 @@ int main(void) {
     outputs_init();
     rc_input_init();
 
+    // Says which model this board is configured for. The pin assignment differs
+    // between models, so flashing the wrong image is worth noticing early.
+    printf("\nlightshow plane: model=%s zones=%u strips=%u relays=%u\n",
+           PLANE_MODEL_NAME, ZONE_COUNT, STRIP_COUNT, RELAY_COUNT);
+
     rc_state_t rc = {0};
     absolute_time_t next = get_absolute_time();
     uint32_t last_log_ms = 0;
@@ -74,8 +79,8 @@ int main(void) {
 
         if (now_ms - last_log_ms >= 1000) {
             last_log_ms = now_ms;
-            printf("src=%d zones=%u cue=%u hue=%u bri=%u param=%u\n",
-                   (int)rc.source, outputs_zone_count(), last_logged.cue,
+            printf("%s src=%d cue=%u hue=%u bri=%u param=%u\n",
+                   PLANE_MODEL_NAME, (int)rc.source, last_logged.cue,
                    last_logged.hue, last_logged.brightness, last_logged.param);
         }
 
