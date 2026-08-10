@@ -25,6 +25,19 @@ from . import planegen
 
 WEB_ROOT = Path(__file__).parent / "web"
 
+# The interface is three files in one flat directory -- no bundler, no
+# dependencies. Anything not listed here is not served.
+STATIC_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
+}
+
+# Loopback, in every shape the socket layer reports it. Requests from anywhere
+# else may look but not build, flash or write into the repository.
+LOCAL_ADDRESSES = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
+
 # MIDI seen this recently means "a show is running" and the editor stays locked.
 SHOW_ACTIVE_S = 3.0
 GENERATED_DIR = "firmware/plane/generated"
@@ -64,6 +77,38 @@ def alsa_connections(port_name: str) -> list[str]:
                 number = ref.split(":")[0]
                 sources.append(f"{clients.get(number, 'Client ' + number)} ({ref})")
     return sources
+
+
+def zone_outputs(model: config_module.ModelCfg) -> list[dict]:
+    """Which lamps and relays each zone of a model actually drives.
+
+    A light track in the editor addresses a zone, and a zone is only a number
+    until you know what hangs on it. This is what lets the editor say "this
+    effect runs on flaeche_links and flaeche_rechts, 60 pixels" instead of
+    "Zone 1", and what lets it show which relays a cue will switch.
+    """
+    out: list[dict] = []
+    plane = model.plane
+
+    for zone in range(model.zone_count):
+        strips = [s for s in plane.strips if s.zone == zone] if plane else []
+        relays = [r for r in plane.relays if r.zone == zone] if plane else []
+        # The virtual chain a chase runs across is as long as the furthest
+        # strip reaches, not the sum of their pixel counts -- strips that share
+        # an offset are mirrors of each other.
+        pixels = max((s.offset + s.count for s in strips), default=0)
+        out.append({
+            "zone": zone,
+            "base_channel": model.zone_base_channel(zone),
+            "pixels": pixels,
+            "strips": [{"name": s.name, "pin": s.pin, "count": s.count,
+                        "offset": s.offset, "reverse": s.reverse} for s in strips],
+            "relays": [{"name": r.name, "pin": r.pin, "source": r.source,
+                        "arg": r.arg, "threshold": r.threshold,
+                        "active_low": r.active_low, "min_on_ms": r.min_on_ms,
+                        "min_off_ms": r.min_off_ms} for r in relays],
+        })
+    return out
 
 
 class Server:
@@ -138,6 +183,7 @@ class Server:
                 span = max(1, slot.port.max_us - slot.port.min_us)
                 fraction = (value_us - slot.port.min_us) / span
                 decoded = f"{round(fraction * 100)} %"
+                step = None
                 if slot.channel.quantize:
                     step = min(slot.channel.quantize - 1,
                                int(fraction * slot.channel.quantize))
@@ -150,14 +196,25 @@ class Server:
                     "us": value_us,
                     "fraction": round(fraction, 4),
                     "decoded": decoded,
+                    # What the airborne firmware will decode this to: a step
+                    # index for quantised channels, 0..255 otherwise. The
+                    # interface previews the effect from these, so it must not
+                    # have to parse `decoded` back apart.
+                    "step": step,
+                    "level": round(fraction * 255),
                     "live": slot.raw is not None or value_us != slot.channel.failsafe,
                 })
             models.append({
                 "name": model.name,
                 "midi_channel": model.midi_channel,
                 "tx_port": model.tx_port,
+                "tx_offset": model.tx_offset,
                 "zones": model.zone_count,
                 "has_plane": model.plane is not None,
+                # The interface previews the effect this model will show, and
+                # the ceiling is part of what it looks like.
+                "max_brightness": model.plane.max_brightness if model.plane else 255,
+                "outputs": zone_outputs(model),
                 "channels": entries,
             })
 
@@ -329,6 +386,9 @@ def _make_handler(server: Server):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
+        REMOTE_DENIED = ("Das geht nur direkt am Rechner, auf dem die Bridge "
+                         "läuft — nicht über das Netzwerk.")
+
         def log_message(self, *args) -> None:  # keep the TUI clean
             pass
 
@@ -354,9 +414,8 @@ def _make_handler(server: Server):
         def do_GET(self) -> None:
             path = urlparse(self.path).path
 
-            if path == "/":
-                self._send(200, (WEB_ROOT / "index.html").read_bytes(),
-                           "text/html; charset=utf-8")
+            if path == "/" or not path.startswith("/api/"):
+                self._static(path)
             elif path == "/api/state":
                 self._json(server.state())
             elif path == "/api/config":
@@ -383,6 +442,21 @@ def _make_handler(server: Server):
             else:
                 self._json({"error": "not found"}, 404)
 
+        def _static(self, path: str) -> None:
+            """Serves the interface out of ``web/``, which is one flat folder.
+
+            Rejecting every path with a slash in it is what keeps this from
+            being a directory traversal -- there are no subdirectories to
+            reach, so no name that contains a separator can ever be valid.
+            """
+            name = path.lstrip("/") or "index.html"
+            suffix = Path(name).suffix
+            file = WEB_ROOT / name
+            if "/" in name or suffix not in STATIC_TYPES or not file.is_file():
+                self._json({"error": "not found"}, 404)
+                return
+            self._send(200, file.read_bytes(), STATIC_TYPES[suffix])
+
         def _is_local(self) -> bool:
             """Building and flashing run commands, so only the local machine may.
 
@@ -390,7 +464,7 @@ def _make_handler(server: Server):
             nobody there should be able to start a compiler or overwrite a
             board's firmware.
             """
-            return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+            return self.client_address[0] in LOCAL_ADDRESSES
 
         def _events(self) -> None:
             self.send_response(200)
@@ -419,6 +493,11 @@ def _make_handler(server: Server):
                     server.mapper.set_blackout(state)
                     self._json({"ok": True, "blackout": state})
                 elif path.startswith("/api/plane/"):
+                    # Writes into the repository, so it belongs with building
+                    # and flashing rather than with the read-only endpoints.
+                    if not self._is_local():
+                        self._json({"ok": False, "error": self.REMOTE_DENIED}, 403)
+                        return
                     name = unquote(path.split("/api/plane/")[1])
                     self._json(server.write_plane_header(name))
                 elif path == "/api/project/new":
@@ -430,15 +509,17 @@ def _make_handler(server: Server):
                 elif path == "/api/project":
                     self._json(server.session.save_project(
                         self._read_json().get("project", {})))
+                elif path == "/api/project/apply":
+                    # Live edit: heard and seen at once, written on save.
+                    self._json(server.session.apply_project(
+                        self._read_json().get("project", {})))
                 elif path == "/api/transport":
                     self._json(server.transport_command(self._read_json()))
                 elif path.startswith("/api/audio/"):
                     self._upload_audio(unquote(path.split("/api/audio/")[1]))
                 elif path == "/api/job":
                     if not self._is_local():
-                        self._json({"ok": False, "error":
-                                    "Bauen und Flashen geht nur direkt am Rechner, "
-                                    "nicht über das Netzwerk."}, 403)
+                        self._json({"ok": False, "error": self.REMOTE_DENIED}, 403)
                         return
                     body = self._read_json()
                     self._json(server.start_job(body.get("kind", ""),
