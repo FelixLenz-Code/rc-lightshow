@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
-from .config import ChannelCfg, ModelCfg, PortCfg, ShowCfg
+from .config import ChannelCfg, ModelCfg, PortCfg, ShowCfg, step_us
 
 
 @dataclass
@@ -32,13 +32,12 @@ class Slot:
         if self.channel.invert:
             raw = self.raw_max - raw
 
-        span = self.port.max_us - self.port.min_us
         steps = self.channel.quantize
         if steps:
             # Land in the middle of each step so a noisy channel never sits on
             # a boundary. The airborne decoder splits the range the same way.
-            index = min(steps - 1, raw * steps // (self.raw_max + 1))
-            return self.port.min_us + round(span * (index + 0.5) / steps)
+            return step_us(self.port, steps, raw * steps // (self.raw_max + 1))
+        span = self.port.max_us - self.port.min_us
         return self.port.min_us + round(span * raw / self.raw_max)
 
 

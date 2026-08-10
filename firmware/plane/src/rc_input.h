@@ -17,6 +17,10 @@ typedef struct {
     uint8_t  channel_count;
     rc_source_t source;
     bool     valid;          // false once the link has been quiet for too long
+    // Frames decoded since boot. The difference between two polls is how much
+    // actually arrived, which is the only way to see dropouts from on board --
+    // a receiver holds its last value and says nothing about what it missed.
+    uint32_t frames;
 } rc_state_t;
 
 void rc_input_init(void);

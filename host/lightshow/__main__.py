@@ -44,6 +44,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "so a phone can reach it (default: 127.0.0.1)")
     parser.add_argument("--generate", metavar="MODEL",
                         help="write the airborne config.h for a model and exit")
+
+    measure = parser.add_argument_group(
+        "link measurement",
+        "Characterises what the radio does to a channel. See docs/funkstrecke-messen.md")
+    measure.add_argument("--sweep", metavar="MODEL",
+                         help="drive a model through known values and record them")
+    measure.add_argument("--sweep-zone", type=int, default=0,
+                         help="which zone of the model to sweep (default: 0)")
+    measure.add_argument("--sweep-dwell", type=float, default=1.0,
+                         help="seconds to hold each value (default: 1.0)")
+    measure.add_argument("--sweep-log", type=Path, default=Path("sweep.csv"),
+                         help="where to record what was sent")
+    measure.add_argument("--plane-port", metavar="DEVICE",
+                         help="serial port of the aircraft's console, recorded "
+                              "alongside the sweep on the same clock")
+    measure.add_argument("--plane-log", type=Path, default=Path("meas.csv"),
+                         help="where to record what the aircraft saw")
+    measure.add_argument("--analyse", nargs=2, metavar=("SWEEP", "MEAS"),
+                         help="evaluate two recordings and print the result")
     return parser.parse_args(argv)
 
 
@@ -141,8 +160,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.serial_port:
         show.serial_port = args.serial_port
 
+    if args.analyse:
+        return run_analysis(show, Path(args.analyse[0]), Path(args.analyse[1]))
+
     if args.generate:
         return generate_plane_header(show, args.config, args.generate)
+
+    if args.sweep:
+        return run_sweep(show, args)
 
     print(describe(show))
     if args.check:
@@ -189,8 +214,83 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if web is not None:
             web.stop()
+        session.close_project()      # hand the audio device back
         link.close()
 
+    return 0
+
+
+def run_sweep(show: config_module.ShowCfg, args: argparse.Namespace) -> int:
+    """Drives known values out and records what the aircraft made of them."""
+    import threading
+
+    from . import sweep as sweep_module
+    from .link import PicoLink
+
+    model = next((m for m in show.models if m.name == args.sweep), None)
+    if model is None:
+        available = ", ".join(m.name for m in show.models)
+        print(f"no model '{args.sweep}' -- available: {available}", file=sys.stderr)
+        return 2
+
+    try:
+        points = sweep_module.plan(show, model, zone=args.sweep_zone,
+                                   dwell_s=args.sweep_dwell)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    port = show.port_by_id(model.tx_port)
+    total_s = sum(getattr(p, "dwell_s", 1.0) for p in points)
+    print(f"Sweep '{model.name}' Zone {args.sweep_zone}: {len(points)} Punkte, "
+          f"{total_s:.0f} s, {sweep_module.baseline_note(port)}")
+
+    link = PicoLink(show.serial_port, show.wire_ports(), dry_run=args.dry_run)
+    capture_thread = None
+    if args.plane_port:
+        print(f"Konsole des Modells: {args.plane_port} -> {args.plane_log}")
+        capture_thread = threading.Thread(
+            target=sweep_module.capture, daemon=True,
+            args=(args.plane_port, args.plane_log),
+            kwargs={"seconds": total_s + 3.0})
+        capture_thread.start()
+        time.sleep(0.5)             # let the port settle before the first value
+    else:
+        print("Kein --plane-port angegeben: es wird nur aufgezeichnet, was "
+              "gesendet wurde.")
+
+    def progress(done: int, count: int, point) -> None:
+        print(f"\r  {done:>4}/{count}  {point.phase:<6} "
+              f"{point.intended_us:>5} us  ", end="", flush=True)
+
+    try:
+        sweep_module.run(show, model, link, points, rate_hz=show.rate_hz,
+                         log=args.sweep_log, progress=progress)
+    finally:
+        link.close()
+    print(f"\nGesendetes aufgezeichnet: {args.sweep_log}")
+
+    if capture_thread is not None:
+        capture_thread.join(timeout=5.0)
+        return run_analysis(show, args.sweep_log, args.plane_log)
+    return 0
+
+
+def run_analysis(show: config_module.ShowCfg, sweep_log: Path,
+                 plane_log: Path) -> int:
+    from . import sweep as sweep_module
+
+    try:
+        points = sweep_module.read_sweep(sweep_log)
+        samples = sweep_module.read_capture(plane_log)
+    except OSError as exc:
+        print(f"cannot read the recordings: {exc}", file=sys.stderr)
+        return 2
+
+    print(f"{len(points)} gesendete Punkte, {len(samples)} Messzeilen")
+    report = sweep_module.analyse(points, samples)
+    span = show.ports[0].max_us - show.ports[0].min_us
+    print(sweep_module.format_report(report, span))
     return 0
 
 

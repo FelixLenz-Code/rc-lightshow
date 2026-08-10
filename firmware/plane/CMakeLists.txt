@@ -54,8 +54,25 @@ target_link_libraries(lightshow_plane
     hardware_clocks
 )
 
-# Debug output on the UART pins; USB stays free (and unpowered in flight).
-pico_enable_stdio_usb(lightshow_plane 0)
-pico_enable_stdio_uart(lightshow_plane 1)
+# Measurement build: dumps the raw microseconds of every RC frame, so the link
+# can be characterised on the bench.
+#
+#   cmake -S firmware/plane -B build/plane-measure -DMEASURE=ON
+#
+# It also turns USB stdio back on. USB is off in the flight build because the
+# port is unpowered in the air -- on a bench that does not apply, and it saves
+# needing a USB-to-UART adapter for the console.
+option(MEASURE "Build the link measurement firmware" OFF)
+
+if(MEASURE)
+    target_compile_definitions(lightshow_plane PRIVATE MEASURE_MODE=1)
+    pico_enable_stdio_usb(lightshow_plane 1)
+    pico_enable_stdio_uart(lightshow_plane 1)
+    message(STATUS "Measurement mode: MEAS lines on USB and UART")
+else()
+    # Debug output on the UART pins; USB stays free (and unpowered in flight).
+    pico_enable_stdio_usb(lightshow_plane 0)
+    pico_enable_stdio_uart(lightshow_plane 1)
+endif()
 
 pico_add_extra_outputs(lightshow_plane)

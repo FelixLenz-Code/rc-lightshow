@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config import CHANNELS_PER_ZONE, ChannelCfg, PortCfg, ShowCfg
+from .config import CHANNELS_PER_ZONE, ChannelCfg, PortCfg, ShowCfg, level_us, step_us
 from .project import LightBlock, LightTrack, Project
 
 
@@ -87,14 +87,12 @@ class Timeline:
 
     def _to_us(self, channel: ChannelCfg, port: PortCfg, value: int) -> int:
         """value is 0..255, or a step index when the channel is quantised."""
-        span = port.max_us - port.min_us
         if channel.quantize:
-            index = max(0, min(channel.quantize - 1, value))
-            return port.min_us + round(span * (index + 0.5) / channel.quantize)
+            return step_us(port, channel.quantize, value)
         level = max(0, min(255, value))
         if channel.invert:
             level = 255 - level
-        return port.min_us + round(span * level / 255)
+        return level_us(port, level)
 
     def frame(self, t: float) -> list[list[int]]:
         """Channel values in microseconds, one list per transmitter port."""
@@ -102,10 +100,8 @@ class Timeline:
 
         # Channels nobody drives keep their configured failsafe.
         for model in self.show.models:
-            port = self.show.port_by_id(model.tx_port)
             for offset, channel in enumerate(model.channels):
                 values[model.tx_port][model.tx_offset + offset] = channel.failsafe
-            del port
 
         for binding in self.bindings:
             block = active_block(binding.track, t)

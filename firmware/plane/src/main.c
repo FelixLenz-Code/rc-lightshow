@@ -38,11 +38,19 @@ int main(void) {
     // between models, so flashing the wrong image is worth noticing early.
     printf("\nlightshow plane: model=%s zones=%u strips=%u relays=%u\n",
            PLANE_MODEL_NAME, ZONE_COUNT, STRIP_COUNT, RELAY_COUNT);
+#if MEASURE_MODE
+    printf("MEASURE build: eine MEAS-Zeile je RC-Frame, %u Cue-Stufen, "
+           "%u..%u us\n", CUE_STEPS, RC_MIN_US, RC_MAX_US);
+#endif
 
     rc_state_t rc = {0};
     absolute_time_t next = get_absolute_time();
+#if MEASURE_MODE
+    uint32_t last_frames = 0;       // print only when a frame is really new
+#else
     uint32_t last_log_ms = 0;
     show_state_t last_logged = {0};
+#endif
 
     while (true) {
         rc_input_poll(&rc);
@@ -74,15 +82,37 @@ int main(void) {
             }
 
             outputs_show(zone, s_pixels);
-            if (zone == 0) last_logged = show;
+#if !MEASURE_MODE
+            if (zone == 0) last_logged = show;   // zone 0 stands in the status line
+#endif
         }
 
+#if MEASURE_MODE
+        // One line per received RC frame with the raw microseconds, so the
+        // bench can compare what was sent against what arrived. Printed only
+        // when a frame is actually new: the receiver holds its last value, and
+        // repeating it would make a dropout look like clean reception.
+        if (rc.frames != last_frames) {
+            last_frames = rc.frames;
+            uint8_t base = (rc.source == RC_SOURCE_SBUS)
+                               ? outputs_zone_base_channel(0) : 1;
+            printf("MEAS ms=%lu seq=%lu src=%d c%u=%u c%u=%u c%u=%u c%u=%u step=%u\n",
+                   (unsigned long)now_ms, (unsigned long)rc.frames, (int)rc.source,
+                   base + 0, rc_channel_us(&rc, base + 0),
+                   base + 1, rc_channel_us(&rc, base + 1),
+                   base + 2, rc_channel_us(&rc, base + 2),
+                   base + 3, rc_channel_us(&rc, base + 3),
+                   decode_step(rc_channel_us(&rc, base), CUE_STEPS));
+        }
+#else
         if (now_ms - last_log_ms >= 1000) {
             last_log_ms = now_ms;
-            printf("%s src=%d cue=%u hue=%u bri=%u param=%u\n",
+            printf("%s src=%d cue=%u hue=%u bri=%u param=%u frames=%lu\n",
                    PLANE_MODEL_NAME, (int)rc.source, last_logged.cue,
-                   last_logged.hue, last_logged.brightness, last_logged.param);
+                   last_logged.hue, last_logged.brightness, last_logged.param,
+                   (unsigned long)rc.frames);
         }
+#endif
 
         next = delayed_by_us(next, 1000000 / RENDER_HZ);
         sleep_until(next);

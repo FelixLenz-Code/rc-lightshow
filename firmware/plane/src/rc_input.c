@@ -22,6 +22,7 @@ static uint8_t  s_sbus_index;
 static uint32_t s_sbus_last_byte_us;
 static uint16_t s_sbus_us[RC_MAX_CHANNELS];
 static uint32_t s_sbus_last_frame_ms;
+static uint32_t s_sbus_frames;
 
 static void sbus_decode(const uint8_t *frame) {
     if (frame[23] & SBUS_FLAG_FAILSAFE) {
@@ -46,6 +47,7 @@ static void sbus_decode(const uint8_t *frame) {
         s_sbus_us[ch] = (uint16_t)us;
     }
     s_sbus_last_frame_ms = to_ms_since_boot(get_absolute_time());
+    s_sbus_frames++;
 }
 
 static void sbus_poll(void) {
@@ -75,6 +77,7 @@ static const uint8_t s_pwm_pins[PWM_COUNT] = PWM_PINS;
 static volatile uint32_t s_pwm_rise_us[PWM_COUNT];
 static volatile uint16_t s_pwm_width_us[PWM_COUNT];
 static volatile uint32_t s_pwm_last_ms[PWM_COUNT];
+static volatile uint32_t s_pwm_frames;
 
 static void pwm_irq(uint gpio, uint32_t events) {
     for (uint8_t i = 0; i < PWM_COUNT; i++) {
@@ -87,6 +90,7 @@ static void pwm_irq(uint gpio, uint32_t events) {
             if (width >= 700 && width <= 2300) {
                 s_pwm_width_us[i] = (uint16_t)width;
                 s_pwm_last_ms[i] = to_ms_since_boot(get_absolute_time());
+                if (i == 0) s_pwm_frames++;   // channel 1 sets the pace
             }
         }
         return;
@@ -134,6 +138,7 @@ void rc_input_poll(rc_state_t *out) {
         out->channel_count = RC_MAX_CHANNELS;
         out->source = RC_SOURCE_SBUS;
         out->valid = true;
+        out->frames = s_sbus_frames;
         return;
     }
 
@@ -153,6 +158,7 @@ void rc_input_poll(rc_state_t *out) {
     out->channel_count = PWM_COUNT;
     out->source = any ? RC_SOURCE_PWM : RC_SOURCE_NONE;
     out->valid = any;
+    out->frames = s_pwm_frames;
 }
 
 uint16_t rc_channel_us(const rc_state_t *state, uint8_t channel) {
