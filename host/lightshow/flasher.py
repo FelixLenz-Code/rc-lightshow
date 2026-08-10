@@ -96,7 +96,7 @@ def reboot_to_bootsel(device: str) -> tuple[bool, str]:
         port = serial.Serial(device, baudrate=MAGIC_BAUD)
         port.dtr = False
         port.close()
-    except (OSError, Exception) as exc:  # serial.SerialException subclasses OSError
+    except Exception as exc:            # noqa: BLE001 - pyserial raises broadly
         return False, f"{device}: {exc}"
 
     # The board re-enumerates as a mass storage device; give udisks a moment.
@@ -238,18 +238,30 @@ def flash(job: Job, uf2: Path, auto_reset_device: str | None = None,
                    + ". Nur eines anstecken, damit nichts verwechselt wird.")
         return
 
-    target = Path(drives[0]) / uf2.name
-    job.log(f"kopiere {uf2.name} ({uf2.stat().st_size // 1024} KB) nach {drives[0]}")
     try:
-        shutil.copyfile(uf2, target)
-        # The board reboots the moment it has the image; a failing flush here is
-        # normal and not an error.
-        try:
-            os.sync()
-        except OSError:
-            pass
+        image = uf2.read_bytes()
     except OSError as exc:
-        # Same story: it may disconnect mid-write once the image is complete.
-        job.log(f"Hinweis beim Schreiben: {exc}")
+        job.finish(False, f"{uf2} ist nicht lesbar: {exc}")
+        return
+
+    target = Path(drives[0]) / uf2.name
+    job.log(f"kopiere {uf2.name} ({len(image) // 1024} KB) nach {drives[0]}")
+
+    # The board reboots the moment it has the whole image, so the volume can
+    # disappear under us while the file is being closed. That is normal. A
+    # failure *before* the last byte is out is not -- a full or read-only mount
+    # used to be reported as a successful flash.
+    written = 0
+    try:
+        with open(target, "wb") as handle:
+            handle.write(image)
+            written = len(image)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as exc:
+        if written < len(image):
+            job.finish(False, f"Schreiben nach {drives[0]} fehlgeschlagen: {exc}")
+            return
+        job.log(f"Hinweis beim Abschließen: {exc}")
 
     job.finish(True, "Aufgespielt. Das Board startet selbständig neu.")

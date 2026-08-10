@@ -115,9 +115,10 @@ Das ist die Vorgabe in `config.h`. Strips, Relais und Zonen stehen dort als
 Tabellen — bis zu 8 Strips (je eine PIO-State-Machine) und 8 Relais, jedes
 Modell so, wie es gebraucht wird.
 
-SBUS wird bevorzugt: eine Leitung, alle 16 Kanäle, und mehrere Modelle können
-sich einen Sender teilen. Die PWM-Eingänge werden nur benutzt, wenn keine
-SBUS-Frames ankommen — beides ist gleichzeitig aktiv, ein Umschalter entfällt.
+SBUS wird bevorzugt: eine Leitung statt vier, und alle Kanäle des Empfängers
+stehen zur Verfügung — genug für ein Modell mit mehreren Zonen, die je vier
+Kanäle brauchen. Die PWM-Eingänge werden nur benutzt, wenn keine SBUS-Frames
+ankommen; beides ist gleichzeitig aktiv, ein Umschalter entfällt.
 
 ### WS2812-Beschaltung
 

@@ -72,32 +72,102 @@ USB-Protokoll. Für das Signal selbst am einfachsten: einen bekannten
 Schüler-Sender an ein Oszilloskop oder einen zweiten Pico hängen und Ruhepegel,
 Pulsbreite und Framelänge ablesen.
 
-## Mehrere Modelle an einem Sender
+## Ein Sender je Modell
 
-16 Kanäle geteilt durch vier Kanäle je Modell ergibt vier Modelle pro Sender.
-Alle Empfänger auf dasselbe Sendermodell binden, dann bekommt jeder alle
-Kanäle und die Bordfirmware greift sich über das `base_channel` ihrer Zone den
-passenden Block.
+Jedes Flugzeug hat seinen eigenen Empfänger, gebunden an seine eigene
+Fernsteuerung. Die Show erreicht ein Modell also **nur über die Trainer-Buchse
+genau dieses Senders**. Zwei Modelle heißen zwei Sender, zwei Klinkenkabel und
+zwei Ports am Signalgenerator — deshalb hat er acht davon.
 
 ```yaml
 tx_ports:
-  - {id: 0, name: seriell, format: sbus, nchan: 16, frame_us: 7000,
-     min_us: 1000, max_us: 2000}
+  - {id: 0, name: eule_sender,  format: ppm, nchan: 8, frame_us: 22500,
+     sync_us: 400, min_us: 1000, max_us: 2000}
+  - {id: 1, name: falke_sender, format: ppm, nchan: 8, frame_us: 22500,
+     sync_us: 400, min_us: 1000, max_us: 2000}
 
 models:
-  - {name: eule,  midi_channel: 1, tx_port: 0, tx_offset: 0,  channels: [...]}
-  - {name: falke, midi_channel: 2, tx_port: 0, tx_offset: 4,  channels: [...]}
-  - {name: bussard, midi_channel: 3, tx_port: 0, tx_offset: 8,  channels: [...]}
-  - {name: milan, midi_channel: 4, tx_port: 0, tx_offset: 12, channels: [...]}
+  - {name: eule,  midi_channel: 1, tx_port: 0, tx_offset: 0, channels: [...]}
+  - {name: falke, midi_channel: 2, tx_port: 1, tx_offset: 0, channels: [...]}
 ```
 
-Dazu in `firmware/plane/src/config.h` je Modell das `base_channel` der Zone auf
-`tx_offset + 1` setzen — also 1, 5, 9, 13:
+In der Web-UI steht dieselbe Zuordnung als **Sender-Buchse** an jedem Modell,
+und sie warnt, wenn zwei Modelle auf derselben Buchse landen.
+
+## Fliegende Modelle: Licht über die Flugkanäle legen
+
+Ein Modell, das auch geflogen wird, braucht seine Flugkanäle auf demselben
+Sender. Beides geht gleichzeitig — der Empfänger gibt die Servokanäle als PWM
+aus **und** alle 16 Kanäle über SBUS:
+
+```
+                    ┌── PWM 1..8 ──▶ Servos, Motor, Klappen
+   Empfaenger ──────┤
+                    └── SBUS     ──▶ Licht-Pico (GP5), eine Leitung
+```
+
+Der Licht-Pico liest den ganzen SBUS-Rahmen und greift sich über `base_channel`
+nur seinen Block. Damit die Blöcke sich nicht überschneiden, muss `tx_offset`
+die Flugkanäle überspringen:
+
+```yaml
+models:
+  - name: eule
+    tx_port: 0
+    tx_offset: 8        # Kanal 1-8 fliegen, Licht ab Kanal 9
+    channels: [ ... ]   # Zone 0 -> Kanal 9-12, Zone 1 -> 13-16
+```
+
+Im Sender liegen Knüppel und Schalter auf Kanal 1–8, der Trainer-Eingang auf
+Kanal 9–16.
+
+> **Trainer-Kanäle niemals auf Gas oder Ruder mischen.** Ein Fehler in der Show
+> darf das Modell nicht steuern können. Das ist der Grund, warum die Lichtkanäle
+> oben liegen und nicht unten.
+
+Wieviel für Licht übrig bleibt, ergibt sich daraus direkt — je Zone vier Kanäle:
+
+| Flugkanäle | frei | Lichtzonen |
+|------------|------|------------|
+| 4          | 12   | 3          |
+| 6          | 10   | 2          |
+| 8          | 8    | 2          |
+
+Prüfen: Manche Empfänger schalten einen Port zwischen SBUS und Servoausgang um,
+ganz kleine haben nur SBUS. Das steht im Handbuch des Empfängers.
+
+`tx_offset` bleibt nur dann 0, wenn das Modell **nicht** geflogen wird — etwa
+eine Bodendekoration an einem eigenen Sender.
+
+## Mehrere Zonen an einem Modell
+
+Ein Modell darf Flächen und Rumpf unabhängig ansteuern. Jede **Zone** kostet
+vier weitere Kanäle **auf demselben Sender**:
+
+```yaml
+models:
+  - name: eule
+    tx_port: 0
+    tx_offset: 0
+    channels: [ ... 8 Einträge: Zone 0 auf 1–4, Zone 1 auf 5–8 ... ]
+```
+
+Die Bordfirmware greift sich über das `base_channel` der Zone den passenden
+Block; der generierte Header setzt das automatisch:
 
 ```c
-#define ZONE_COUNT 1
-#define ZONES { {9}, }   // Bussard: Kanäle 9..12
+#define ZONE_COUNT 2
+#define ZONES { {1}, {5}, }   // Zone 0: Kanäle 1..4, Zone 1: 5..8
 ```
 
-Mit PPM statt SBUS gilt dasselbe, aber ein 16-Kanal-PPM-Frame braucht
+Ab zwei Zonen lohnt der serielle Trainer-Eingang: SBUS überträgt 16 Kanäle über
+eine Leitung. Mit PPM geht es auch, aber ein 16-Kanal-PPM-Frame braucht
 mindestens `frame_us: 35400`; die Konfigurationsprüfung sagt das auch.
+
+## Ausnahme: zwei Empfänger an einem Sender
+
+Technisch lassen sich zwei Empfänger auf dasselbe Sendermodell binden. Dann
+teilen sich beide Modelle einen Port, und `tx_offset` trennt ihre Kanalblöcke
+(0 und 4). Beide Flugzeuge hängen damit an einem Sender — fällt der aus, sind
+beide dunkel, und keines lässt sich einzeln steuern. Der Normalfall ist das
+nicht; die UI weist deshalb darauf hin.

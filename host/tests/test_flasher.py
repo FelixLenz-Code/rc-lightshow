@@ -154,3 +154,32 @@ def test_build_refuses_without_a_generated_header(tmp_path, monkeypatch):
     flasher.build_plane(job, tmp_path, "eule")
     assert not job.ok
     assert "config.h" in "\n".join(job.lines)
+
+
+def test_a_copy_that_fails_is_not_reported_as_success(tmp_path):
+    """A board disconnecting mid-write is normal; a full or read-only volume is not.
+
+    Both used to end in "Aufgespielt", which is the one message that must not
+    be wrong -- it is what stops someone from flashing again.
+    """
+    drive = make_bootsel(tmp_path)
+    uf2 = tmp_path / "x.uf2"
+    uf2.write_bytes(b"UF2\x0a" * 64)
+
+    drive.chmod(0o500)                      # readable, not writable
+    try:
+        job = flasher.Job("test")
+        flasher.flash(job, uf2, None, roots=[tmp_path])
+    finally:
+        drive.chmod(0o700)
+
+    assert not job.ok, "\n".join(job.lines)
+    assert "fehlgeschlagen" in "\n".join(job.lines)
+
+
+def test_an_unreadable_image_is_reported(tmp_path):
+    make_bootsel(tmp_path)
+    job = flasher.Job("test")
+    flasher.flash(job, tmp_path / "gibtsnicht.uf2", None, roots=[tmp_path])
+    assert not job.ok
+    assert "zuerst bauen" in "\n".join(job.lines)

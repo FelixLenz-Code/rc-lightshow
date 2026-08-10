@@ -30,9 +30,12 @@ global_offset_ms: 0
 #
 # ids muessen bei 0 anfangen und luecklos sein; id 0 = GPIO2, id 1 = GPIO3, ...
 
+# Eine Zeile je Fernsteuerung -- jedes Modell hat seinen eigenen Empfaenger und
+# damit seinen eigenen Sender. id 0 = GPIO2, id 1 = GPIO3, ... bis id 7 = GPIO9.
+
 tx_ports:
   - id: 0
-    name: frsky_ethos
+    name: eule_sender
     format: ppm
     polarity: normal
     nchan: 8
@@ -41,18 +44,20 @@ tx_ports:
     min_us: 1000
     max_us: 2000
 
-  # Zweiter Sender, z.B. eine aeltere Anlage mit negativem Shift:
-  # - id: 1
-  #   name: alt_negativ
-  #   format: ppm
-  #   polarity: inverted
-  #   nchan: 8
-  #   frame_us: 22500
-  #   sync_us: 300
-  #   min_us: 1000
-  #   max_us: 2000
+  # Zweiter Sender fuer das zweite Modell. Bei einer aelteren Anlage mit
+  # negativem Shift hier polarity: inverted setzen.
+  - id: 1
+    name: falke_sender
+    format: ppm
+    polarity: normal
+    nchan: 8
+    frame_us: 22500
+    sync_us: 400
+    min_us: 1000
+    max_us: 2000
 
-  # Serieller Trainer-Eingang, 16 Kanaele statt 8:
+  # Serieller Trainer-Eingang, 16 Kanaele statt 8. Lohnt sich bei einem Modell
+  # mit mehreren Zonen -- vier Kanaele je Zone:
   # - id: 2
   #   name: seriell
   #   format: sbus
@@ -65,9 +70,17 @@ tx_ports:
 
 # --- Modelle ----------------------------------------------------------------
 # Ein Block je Flugzeug. midi_channel ist der Kanal, den Ardour anzeigt (1..16).
-# tx_offset erlaubt mehrere Modelle an einem Sender: Modell 1 auf Kanal 1-4,
-# Modell 2 auf Kanal 5-8. Bei 16-Kanal-Ports passen so vier Modelle auf einen
-# Sender -- alle Empfaenger dazu einfach auf dasselbe Sendermodell binden.
+#
+# tx_port ist die Buchse am Signalgenerator und damit der Sender, dessen
+# Trainer-Eingang dort haengt. Jedes Modell hat einen eigenen Empfaenger, also
+# auch einen eigenen Sender und eine eigene Buchse: zwei Modelle heissen zwei
+# Ports. Deshalb hat die Bodenstation acht Ausgaenge.
+#
+# tx_offset ist der erste belegte Kanal auf diesem Sender. Bei einem Modell, das
+# auch geflogen wird, muessen die Lichtkanaele UEBER den Flugkanaelen liegen:
+# Kanal 1-8 Knueppel und Schalter, tx_offset: 8, Licht ab Kanal 9. Der Empfaenger
+# gibt die Servokanaele als PWM aus und gleichzeitig alle 16 ueber SBUS.
+# 0 passt nur, wenn das Modell nicht geflogen wird.
 #
 # Kanalrollen (so interpretiert sie die Bordfirmware):
 #   cue         Effektnummer, quantisiert -- Stufe 0 heisst alles aus
@@ -116,8 +129,8 @@ models:
 
   - name: falke
     midi_channel: 2
-    tx_port: 0
-    tx_offset: 4
+    tx_port: 1          # eigener Sender, eigene Buchse
+    tx_offset: 0
     channels:
       - {role: cue,        cc: 20, quantize: 32, failsafe: 1000}
       - {role: hue,        cc: 21,               failsafe: 1500}

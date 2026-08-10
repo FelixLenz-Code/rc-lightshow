@@ -31,9 +31,11 @@
 
 // ------------------------------------------------------------- RC input -----
 //
-// SBUS is preferred: one wire carries all 16 channels, so up to four models can
-// share one transmitter. PWM is the fallback for receivers without SBUS. Both
-// are read; SBUS wins whenever its frames are fresh.
+// Each model has its own receiver on its own transmitter, so this is about one
+// aircraft's channels. SBUS is preferred: one wire instead of four, and all 16
+// channels are there -- room for several zones at four channels each. PWM is
+// the fallback for receivers without SBUS. Both are read; SBUS wins whenever
+// its frames are fresh.
 
 #define SBUS_UART      uart1
 #define SBUS_RX_PIN    5

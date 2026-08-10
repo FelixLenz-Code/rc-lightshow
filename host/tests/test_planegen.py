@@ -44,12 +44,35 @@ def defines(header: str) -> dict[str, str]:
 # ----------------------------------------------------------------- generator
 
 
+def test_a_model_reads_the_first_four_channels_of_its_own_transmitter(show):
+    """The normal case: one model, one receiver, one transmitter, channels 1..4."""
+    for name in ("eule", "falke"):
+        header = planegen.generate(show, model(show, name))
+        assert "{1}," in header and "Kanaele 1..4" in header
+
+
 def test_zone_base_channel_follows_the_transmitter_offset(show):
-    """A model at tx_offset 4 must read channels 5..8, not 1..4."""
-    eule = planegen.generate(show, model(show, "eule"))
-    falke = planegen.generate(show, model(show, "falke"))
-    assert "{1}," in eule and "Kanaele 1..4" in eule
-    assert "{5}," in falke and "Kanaele 5..8" in falke
+    """The exception: a model pushed up the frame must read 5..8, not 1..4.
+
+    That happens when a model has a second zone, and when two receivers are
+    deliberately bound to one transmitter.
+    """
+    shifted = model(show, "falke")
+    shifted.tx_offset = 4
+    header = planegen.generate(show, shifted)
+    shifted.tx_offset = 0                       # the fixture is module scoped
+    assert "{5}," in header and "Kanaele 5..8" in header
+
+
+def test_a_second_zone_takes_the_next_four_channels(show):
+    """Zones are what tx_offset normally has to make room for."""
+    two = model(show, "eule")
+    original = list(two.channels)
+    two.channels = original + original          # eight channels, two zones
+    header = planegen.generate(show, two)
+    two.channels = original
+    assert "#define ZONE_COUNT 2" in header
+    assert "{1}," in header and "{5}," in header
 
 
 def test_strip_table_matches_the_configuration(show):

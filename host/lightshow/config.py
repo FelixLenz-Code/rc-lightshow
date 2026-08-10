@@ -171,6 +171,26 @@ class ShowCfg:
         return wires
 
 
+def step_us(port: PortCfg, steps: int, index: int) -> int:
+    """Microseconds for one step of a quantised channel.
+
+    Each step sits in the *middle* of its band, so a channel that arrives a few
+    microseconds off still truncates back to the same index on board. Both the
+    MIDI mapper and the project timeline encode through here, and so does the
+    link measurement -- a sweep that used its own formula would measure the
+    wrong thing.
+    """
+    span = port.max_us - port.min_us
+    index = max(0, min(steps - 1, index))
+    return port.min_us + round(span * (index + 0.5) / steps)
+
+
+def level_us(port: PortCfg, level: int) -> int:
+    """Microseconds for a continuous channel, 0..255."""
+    span = port.max_us - port.min_us
+    return port.min_us + round(span * max(0, min(255, level)) / 255)
+
+
 def _require(data: dict[str, Any], key: str, where: str) -> Any:
     if key not in data:
         raise ConfigError(f"{where}: missing '{key}'")
@@ -344,13 +364,16 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
 
 def _parse_port(data: dict[str, Any]) -> PortCfg:
     where = f"tx_ports[{data.get('name', data.get('id', '?'))}]"
+    # Lower case before the default frame length is picked from it, or
+    # `format: PPM` would silently get the much shorter SBUS default.
+    fmt = str(data.get("format", "ppm")).lower()
     port = PortCfg(
         id=int(_require(data, "id", where)),
         name=str(data.get("name", f"port{data.get('id')}")),
-        format=str(data.get("format", "ppm")).lower(),
+        format=fmt,
         polarity=str(data.get("polarity", "normal")).lower(),
         nchan=int(data.get("nchan", 8)),
-        frame_us=int(data.get("frame_us", 22500 if data.get("format", "ppm") == "ppm" else 7000)),
+        frame_us=int(data.get("frame_us", 22500 if fmt == "ppm" else 7000)),
         sync_us=int(data.get("sync_us", 400)),
         min_us=int(data.get("min_us", 1000)),
         max_us=int(data.get("max_us", 2000)),
@@ -365,8 +388,20 @@ def _parse_port(data: dict[str, Any]) -> PortCfg:
         raise ConfigError(f"{where}: nchan must be between 1 and {MAX_CH}")
     if port.min_us >= port.max_us:
         raise ConfigError(f"{where}: min_us must be below max_us")
+    # The same window the firmware accepts in cfg_valid(). Checking it here
+    # turns "the board ignores my configuration" into a message at startup.
+    if port.min_us < 500 or port.max_us > 2500:
+        raise ConfigError(
+            f"{where}: the pulse range must stay within 500..2500 us, got "
+            f"{port.min_us}..{port.max_us}"
+        )
 
     if port.format == "ppm":
+        if not 50 <= port.sync_us <= 800:
+            raise ConfigError(
+                f"{where}: sync_us {port.sync_us} is outside 50..800, which is "
+                f"what the firmware accepts"
+            )
         # The firmware rejects frames that cannot hold every channel at its
         # maximum plus a 3 ms sync gap -- catch it here with a useful message.
         needed = port.nchan * port.max_us + port.sync_us + 3000
