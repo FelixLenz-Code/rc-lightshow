@@ -60,12 +60,34 @@ einer Stufengrenze sitzt.
 
 Vollständige Effektliste: [`docs/cues.md`](docs/cues.md).
 
-### Was das für die Skalierung heißt
+### Ein Modell, ein Empfänger, ein Sender
 
-Vier Kanäle je Modell bedeutet: ein 16-Kanal-Sender trägt **vier Modelle**. Alle
-Empfänger auf dasselbe Sendermodell binden, jedes Modell greift sich über
-`base_channel` seiner Zone den passenden Kanalblock. Acht Modelle brauchen also
-zwei Sender, nicht acht.
+Jedes Flugzeug hat seinen **eigenen Empfänger**, gebunden an seine **eigene
+Fernsteuerung**. Die Show erreicht dieses Modell nur über den Trainer-Eingang
+genau dieses Senders. Ein Modell heißt also: ein Empfänger, ein Sender, eine
+PPM-Buchse, ein Ausgang am Signalgenerator.
+
+Genau deshalb hat die Bodenstation **acht Ausgänge** (GPIO2–GPIO9). Acht
+Modelle heißen acht Sender, acht Klinkenkabel, acht Ports:
+
+```
+       Bridge
+         │
+    ┌────┴────┬─────────┬─────────┐
+  Port 0    Port 1    Port 2    Port 3     (GPIO2, 3, 4, 5 …)
+    │         │         │         │
+  Sender A  Sender B  Sender C  Sender D   (Trainer-/PPM-Buchse)
+    │         │         │         │
+  Empf. A   Empf. B   Empf. C   Empf. D
+    │         │         │         │
+   eule     falke     bussard    milan
+```
+
+Die vier Kanäle je Modell liegen damit normalerweise auf **Kanal 1–4 seines
+eigenen Senders**, `tx_offset` bleibt 0. Höher wird es nur in zwei Fällen: ein
+Modell mit **mehreren Zonen** belegt je Zone vier Kanäle (Zone 0 auf 1–4, Zone 1
+auf 5–8), und wer zwei Empfänger bewusst auf dasselbe Sendermodell bindet, kann
+sie sich einen Sender teilen lassen. Der Normalfall ist das nicht.
 
 ---
 
@@ -104,30 +126,54 @@ Sie braucht keine zusätzlichen Pakete — reine Python-Bordmittel. Mit
 `--web-host 0.0.0.0` ist sie auch vom Handy im selben WLAN erreichbar,
 `--no-web` schaltet sie ab.
 
-**Live** — ob die DAW verbunden ist (über `aconnect` ausgelesen, also die echte
-Verbindung, nicht nur „es kommt was an"), ob der Pico hängt, und was auf jedem
-Kanal ankommt: Mikrosekunden, Pegelbalken und der dekodierte Wert. Bei
-`cue` steht dort die erkannte Stufe, sonst der Prozentwert. Kanäle, auf denen
-noch nichts kam, sind als Failsafe markiert.
+Die Oberfläche ist ein festes Anwendungsfenster mit vier Ansichten in der
+Leiste links — kein Framework, kein Bundler, vier Dateien in
+`host/lightshow/web/`. Dunkel ist der entworfene Zustand, weil damit nachts auf
+dem Platz gearbeitet wird; der Knopf unten links schaltet auf hell.
 
-**Modelle** — LED-Strips, Relais und Positionslichter je Modell anlegen und
-bearbeiten. Beim Speichern läuft dieselbe Prüfung wie beim Start, Fehler kommen
-im Klartext zurück („GPIO 5 wird von SBUS und Strip 'flaeche_links' benutzt").
-Die Vorversion bleibt als `show.yaml.bak` liegen.
+**Sie zeigt Licht.** Die Effekt-Engine der Bordfirmware ist nach JavaScript
+portiert, also rechnet der Browser dasselbe Muster wie der Controller im Rumpf.
+Das trägt die ganze Bedienung: Ein Effektblock in der Timeline zeigt seinen
+eigenen Effekt laufend an, der Effekt-Wähler ist ein Raster aus elf laufenden
+Vorschauen statt einer Klappliste, und in der Bühnen-Ansicht steht je Modell ein
+LED-Streifen, der zeigt, was dieses Flugzeug gerade macht.
 
-> Solange MIDI hereinkommt, ist die Bearbeitung **gesperrt**. Zum Ändern die
-> Wiedergabe in der DAW stoppen. Das verhindert, dass sich die Zuordnung mitten
-> in einer Show verschiebt.
+> Diese Vorschau ist nur etwas wert, wenn sie stimmt. `tools/ctest/effect_dump.c`
+> übersetzt die echte `effects.c` und `host/tests/test_effects_preview.py`
+> vergleicht beide Pixel für Pixel über alle Cues, Farbtöne, Tempi und
+> Pixelzahlen. Läuft die Portierung weg, schlägt der Test fehl.
+
+**Show** — der Editor. Timeline mit Audiospuren und Lichtspuren, Spurköpfe
+links, Inspektor rechts. Spurkopf und Inspektor nennen die Leuchtmittel, die
+eine Lichtspur wirklich ansteuert (`flaeche_links + flaeche_rechts · 60 Pixel`),
+und zeigen je Block, welche Relais der Effekt schaltet. Ausführlich unter
+[Show-Editor](#show-editor).
+
+**Bühne** — je Modell und Zone eine Karte: der laufende LED-Streifen, der Name
+des Effekts, Farbton, Helligkeit und Tempo als Balken, darunter aufklappbar die
+Rohwerte in Mikrosekunden. Modelle ohne Signal pulsen bernsteinfarben — genau
+wie das echte Flugzeug im Failsafe. Darunter die Verbindungen: ob die DAW
+verbunden ist (über `aconnect` ausgelesen, also die echte Verbindung, nicht nur
+„es kommt was an“) und ob die Bodenstation hängt.
+
+**Modelle** — je Modell eine Karte mit seiner **Sender-Buchse**, den LED-Strips,
+Relais und Positionslichtern. Doppelt vergebene GPIOs werden schon beim Tippen
+rot markiert, samt Hinweis, wer den Pin sonst benutzt; zwei Modelle auf derselben
+Sender-Buchse ergeben eine Warnung. Beim Speichern läuft dieselbe Prüfung wie
+beim Start, Fehler kommen im Klartext zurück („GPIO 5 wird von SBUS und Strip
+'flaeche_links' benutzt"). Die Vorversion bleibt als `show.yaml.bak` liegen.
+
+> Solange eine Show läuft, ist die Bearbeitung hier **gesperrt**. Das verhindert,
+> dass sich die Zuordnung mitten in einer Show verschiebt.
 
 **Anschluss** — je Modell eine Tabelle, wo was an den Pico im Flieger kommt,
 inklusive **physischer Pinnummer** auf der Platine, dazu der geschätzte
 LED-Strom und die fertige `config.h`. Ein Knopf schreibt sie nach
 `firmware/plane/generated/<modell>.h`.
 
-**Firmware bauen und aufspielen** — im Anschluss-Tab, ohne Terminal. Die UI
-prüft vorher die Toolchain und sagt konkret, was fehlt, statt einen
-Compiler-Fehler zu zeigen. Der Build läuft im Hintergrund, das Log steht live
-auf der Seite.
+**Firmware bauen und aufspielen** — im selben Tab, ohne Terminal. Die UI prüft
+vorher die Toolchain und sagt konkret, was fehlt, statt einen Compiler-Fehler zu
+zeigen. Der Build läuft im Hintergrund, das Log steht live auf der Seite.
 
 Beim Aufspielen unterscheiden sich die beiden Boards, und das lässt sich nicht
 wegprogrammieren:
@@ -141,9 +187,10 @@ Sobald ein Board im Bootloader hängt, erscheint es als Laufwerk `RPI-RP2` und
 die UI kopiert die `.uf2` hinüber — ein reiner Dateikopiervorgang. Stecken zwei
 Boards gleichzeitig im Bootloader, bricht sie ab statt zu raten.
 
-> Bauen und Flashen führen Befehle aus und sind deshalb **nur von localhost**
-> erlaubt. Über `--web-host 0.0.0.0` sieht man die Oberfläche zwar, aber die
-> Knöpfe antworten mit 403.
+> Bauen, Flashen und das Schreiben der `config.h` greifen auf den Rechner zu und
+> sind deshalb **nur von localhost** erlaubt. Über `--web-host 0.0.0.0` sieht man
+> die Oberfläche zwar, aber die Knöpfe antworten mit 403 — und die UI sagt das
+> auch, statt sie einfach nicht zu tun.
 
 ### Jedes Modell bekommt seine eigene Firmware
 
@@ -339,8 +386,8 @@ Ergebnis:
 
 | Datei                            | Ziel                    | Größe            |
 |----------------------------------|-------------------------|------------------|
-| `build/pico/lightshow_tx.uf2`    | Pico an der Bodenstation| 46 KB Flash      |
-| `build/plane-<modell>/lightshow_plane_<modell>.uf2` | Pico im Modell | 31 KB Flash |
+| `build/pico/lightshow_tx.uf2`    | Pico an der Bodenstation| 42 KB Flash      |
+| `build/plane-<modell>/lightshow_plane_<modell>.uf2` | Pico im Modell | 28 KB Flash |
 
 Beide Firmwares bauen per Default für den Raspberry Pi Pico; ein anderes Board
 über `-DPICO_BOARD=<name>`.
@@ -412,14 +459,22 @@ Ausführlich in [`docs/show-editor.md`](docs/show-editor.md).
    nicht nach CC-Nummern.
 2. Musik auf eine Audiospur ziehen. Die Datei wird ins Projekt kopiert, damit
    der Ordner für sich allein lauffähig bleibt. WAV, FLAC, OGG und MP3.
-3. **Effekt einfügen** setzt einen Block auf die Lichtspur: Effekt, Farbe,
-   Helligkeit, Tempo, Ein- und Ausblendung. Ziehen verschiebt, an der Kante
-   längen, Doppelklick löscht.
-4. Leertaste startet und stoppt. Klick aufs Lineal springt an die Stelle.
+3. **＋ Effekt** setzt einen Block am Abspielkopf auf die Lichtspur: Effekt,
+   Farbe, Helligkeit, Tempo, Ein- und Ausblendung. Ziehen verschiebt, an der
+   Kante längen, <kbd>Entf</kbd> löscht. Kanten rasten am Raster ein, <kbd>Alt</kbd>
+   beim Ziehen schaltet das ab.
+4. Leertaste startet und stoppt. Klicken oder Ziehen im Lineal setzt den
+   Abspielkopf; während der Wiedergabe scrollt die Ansicht mit.
+5. Klick auf einen Spurkopf öffnet die Spureinstellungen — Name, Lautstärke,
+   stumm, bzw. Modell und Zone. Dort lassen sich Spuren auch löschen; `+A` und
+   `+L` über den Köpfen legen neue an.
 
 Blöcke auf einer Spur dürfen sich **nicht überlappen** — eine Zone zeigt immer
 genau einen Effekt, weil `cue` ein einzelner Kanal ist. Für einen Übergang den
-einen aus- und den nächsten einblenden lassen.
+einen aus- und den nächsten einblenden lassen. Der Editor setzt das selbst
+durch: Ein Block lässt sich nicht über seinen Nachbarn schieben, und eine zu
+lange Blende wird auf die Blocklänge zurückskaliert. Was sich bauen lässt, lässt
+sich also auch speichern.
 
 Während der Wiedergabe ist die Modellkonfiguration gesperrt; der Editor selbst
 bleibt bedienbar und Speichern setzt die Wiedergabe nicht zurück.
@@ -546,7 +601,7 @@ Modell im Flug, dann skalieren.
 cd host && ./.venv/bin/python -m pytest tests -v
 ```
 
-150 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
+290 Tests. Die interessanten sind keine Unit-Tests, sondern Kreuzprüfungen:
 `tools/ctest/` kompiliert die **echten** Firmware-Quellen für den PC und prüft
 sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 
@@ -563,6 +618,9 @@ sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 | `test_timeline.py`     | Effekt-Blöcke, Blenden, Projektformat                         |
 | `test_audio.py`        | Mixdown und die Transportuhr, mit und ohne Audiogerät         |
 | `test_session.py`      | woher die Kanalwerte kommen, Projektverwaltung                |
+| `test_webui.py`        | Auslieferung der Oberfläche, Pfadschutz, die localhost-Sperre  |
+| `test_effects_preview.py` | Effektvorschau im Browser gegen die echte `effects.c`      |
+| `test_sweep.py`        | Auswertung der Funkstreckenmessung, gegen bekannte Fehler      |
 
 Drei davon lohnen eine Erklärung:
 
@@ -588,6 +646,22 @@ Die C-Werkzeuge einzeln bauen:
 ```bash
 make -C tools/ctest
 ```
+
+### Die Funkstrecke vermessen
+
+Eine Zahl trägt den ganzen Entwurf: wie weit ein Kanalwert unterwegs verrutscht.
+Sie ist bisher eine Annahme (±13 µs im Kreuztest), keine Messung. Das Werkzeug
+dafür steht bereit und braucht nur die Hardware:
+
+```bash
+cmake -S firmware/plane -B build/plane-measure -DMEASURE=ON -DPLANE_CONFIG=generated/eule.h
+cd host && ./.venv/bin/python -m lightshow --sweep eule --plane-port /dev/ttyACM1
+```
+
+Die Bridge fährt alle Cue-Stufen und den Kanalhub ab, zeichnet die Konsole des
+Modells auf derselben Uhr mit und sagt am Ende, wie viele Bit ein Kanal wirklich
+trägt. Vollständig in
+[`docs/funkstrecke-messen.md`](docs/funkstrecke-messen.md).
 
 ### Manuelle Prüfungen
 
@@ -665,11 +739,12 @@ USB-Isolator zwischen PC und Pico.
 | Pfad              | Inhalt                                                     |
 |-------------------|------------------------------------------------------------|
 | `host/lightshow/` | Bridge: `config`, `mapping`, `midi`, `link`, `monitor`, `webui`, `planegen` |
+| `host/lightshow/web/` | Oberfläche: `index.html`, `app.css`, `app.js`, `effects.js` — ohne Bundler |
 | `host/tests/`     | Testsuite, inklusive der Kreuzprüfungen gegen die Firmware  |
 | `firmware/pico/`  | Bodenstation: PPM/SBUS über PIO und DMA, Selbsttest         |
 | `firmware/plane/` | Bordcontroller: RC-Eingang, Effekt-Engine, Strips, Relais   |
 | `tools/ctest/`    | Firmware-Logik nativ kompiliert, für die Tests              |
-| `docs/`           | Ardour-Setup, Sender-Setup, Cue-Liste                       |
+| `docs/`           | Ardour-Setup, Sender-Setup, Cue-Liste, Funkstreckenmessung   |
 | `hardware/`       | Pinbelegung, Pegel, Stückliste, Strombudget                 |
 
 Drei Header sind bewusst frei von SDK-Abhängigkeiten, damit ihre Rechnungen auf

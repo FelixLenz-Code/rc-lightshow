@@ -35,13 +35,26 @@ dort weiter. Gelesen werden WAV, FLAC, OGG und MP3.
 | Block oder Clip ziehen | verschieben |
 | an der Kante ziehen | Anfang bzw. Ende ändern |
 | anklicken | auswählen, Details erscheinen unten |
-| Doppelklick oder `Entf` | löschen |
-| Klick aufs Lineal | Abspielposition setzen |
+| `Entf` | Auswahl löschen |
+| Klick oder Ziehen im Lineal | Abspielposition setzen |
+| Klick auf einen Spurkopf | Spureinstellungen: Name, Lautstärke, stumm, Zone |
+| `+A` / `+L` über den Spurköpfen | Audio- bzw. Lichtspur anlegen |
 | Leertaste | Wiedergabe starten und anhalten |
-| Zoom-Regler | Auflösung der Zeitachse |
+| `Pos1` | Stopp, zurück an den Anfang |
+| `E` | Effektblock am Abspielkopf einfügen |
+| `←` `→` | Abspielkopf um 1 s, mit `Umschalt` um 5 s |
+| `Strg`+`S` | Projekt speichern |
+| Zoom-Regler, `+` / `−`, `Strg`+Mausrad | Auflösung der Zeitachse |
+| `Alt` beim Ziehen | ohne Raster |
 
-Der Block trägt die Farbe, die er sendet — Farbton aus `hue`, Helligkeit aus
-`brightness`. Die dunklen Keile an den Kanten sind Ein- und Ausblendung.
+Der Block **spielt seinen eigenen Effekt ab**: die Bordfirmware ist nach
+JavaScript portiert, das Muster im Block ist also dasselbe, das später am Modell
+läuft. Die dunklen Keile an den Kanten sind Ein- und Ausblendung, die
+gestrichelte Linie markiert das Ende der Show.
+
+Kanten rasten am Raster ein; wie fein es ist, ergibt sich aus dem Zoom (bei
+starker Vergrößerung 0,05 s, bei weiter Übersicht 5 s). `Alt` beim Ziehen
+schaltet es ab.
 
 ## Effekt-Blöcke
 
@@ -63,7 +76,44 @@ einzelner Kanal ist. Zwei gleichzeitige Blöcke wären nicht mischbar, sondern
 mehrdeutig — deshalb lehnt das Speichern sie ab. Für einen weichen Übergang den
 einen aus- und den nächsten einblenden lassen.
 
+Der Editor lässt es gar nicht erst so weit kommen: Ein Block stößt beim Ziehen
+an seinen Nachbarn an, statt sich darüberzulegen, und auch von Hand eingetippte
+Werte werden in die Lücke zurückgeholt. Ebenso werden Blenden, die länger sind
+als der Block, auf dessen Länge zurückskaliert. Was sich im Editor bauen lässt,
+lässt sich damit auch speichern.
+
 Wo kein Block liegt, gehen die Kanäle auf ihre Failsafe-Werte, also aus.
+
+## Welche Lampen ein Block ansteuert
+
+Eine Lichtspur steuert **eine Zone eines Modells**. Welche Leuchtmittel das sind,
+steht in der Bordkonfiguration: jeder Strip trägt dort eine Zone. Der Editor
+zeigt es an beiden Stellen, damit „Zone 1" keine bloße Zahl bleibt:
+
+- im **Spurkopf** die Namen der Strips, z. B. `flaeche_links + flaeche_rechts`
+- im **Inspektor** darüber hinaus die Pixelzahl, und die Vorschau ist genau so
+  lang wie die echte Kette — ein Lauflicht sieht damit aus wie am Modell
+
+Ein Modell mit zwei Zonen bekommt zwei Lichtspuren und kann Flächen und Rumpf
+unabhängig steuern. Das kostet vier weitere RC-Kanäle.
+
+## Relais
+
+Relais haben **keine eigene Spur**, und das ist Absicht: drei der vier Quellen
+werden aus der Effekt-Engine abgeleitet und kosten deshalb keinen RC-Kanal.
+Welche Quelle ein Relais benutzt, steht im Tab **Modelle**; der Editor rechnet
+sie mit und zeigt im Inspektor je Block, was passiert:
+
+| Anzeige  | Bedeutung                                                   |
+|----------|-------------------------------------------------------------|
+| `an`     | schaltet mit diesem Block durchgehend ein                    |
+| `blinkt` | folgt dem Muster, geht innerhalb eines Zyklus an und aus     |
+| `aus`    | bleibt bei diesem Effekt aus                                 |
+
+Effekt 0 schaltet immer alle Relais ab. Ein mechanisches Relais mit
+`min_on_ms`/`min_off_ms` blinkt langsamer als die LEDs — der Inspektor weist mit
+„träge" darauf hin. Nur `eigener RC-Kanal` braucht einen zusätzlichen Kanal und
+lässt sich nicht aus dem Effekt ableiten.
 
 ## Wiedergabe
 
@@ -74,6 +124,20 @@ auseinanderlaufen.
 
 Zwischen den Audio-Callbacks wird die Position interpoliert und die
 Ausgabelatenz abgezogen, damit sie zu dem passt, was tatsächlich zu hören ist.
+
+Änderungen wirken **sofort**, ohne Speichern: Ein verschobener Clip klingt an
+seiner neuen Stelle, eine gedrehte Spurlautstärke ist gleich zu hören. Die
+Bridge mischt dafür nur dann neu, wenn sich am Audio wirklich etwas geändert
+hat — ein verschobener Lichtblock kostet keinen Remix. **Speichern** schreibt
+die Änderung zusätzlich auf die Platte.
+
+Der Abspielkopf bleibt bei **Pause** stehen und der Ton verstummt sofort; das
+Gerät bleibt dabei geöffnet, damit der nächste Start ohne Verzögerung kommt.
+Steht der Kopf am Ende, beginnt **Wiedergabe** wieder von vorn.
+
+Kommt der Ton hörbar später als das Licht, steht die gemessene Ausgabelatenz in
+der Transportzeile — die Position ist bereits um sie korrigiert. Bleibt ein
+Versatz, hilft `global_offset_ms` in `show.yaml`, das das Licht nachzieht.
 
 **Ohne Audiogerät läuft die Uhr trotzdem.** Die Lichter verhalten sich exakt wie
 mit Ton — so lässt sich eine Show auch auf einem Rechner ohne Audio prüfen. Die
