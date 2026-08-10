@@ -106,7 +106,17 @@ class Session:
             self.timeline = line
         return {"ok": True, "project": self.project_payload()}
 
-    def save_project(self, data: dict) -> dict:
+    def apply_project(self, data: dict) -> dict:
+        """Makes an edit audible and visible, without writing it to disk.
+
+        The mix is built once when a project loads, and the light timeline is
+        built with it. Without this, a clip dragged to a new place stayed where
+        it was until someone pressed save -- it moved on screen and played from
+        its old position, which is the worst kind of wrong.
+
+        The audio is only remixed when the audio actually changed. Dragging a
+        light block must not cost a remix of a five minute song.
+        """
         with self._lock:
             current = self.project
         if current is None or current.path is None:
@@ -117,24 +127,42 @@ class Session:
         except project_module.ProjectError as exc:
             return {"ok": False, "error": str(exc)}
 
-        was_playing = self.transport.playing
-        position = self.transport.position()
+        audio_changed = (project_module.to_dict(updated)["audio_tracks"]
+                         != project_module.to_dict(current)["audio_tracks"])
 
-        project_module.save(updated, current.path)
-        self.transport.load(updated)
         line = timeline_module.Timeline(self.show, updated)
         with self._lock:
             self.project = updated
             self.timeline = line
 
-        # Editing during playback should not throw you back to the start.
-        self.transport.seek(position)
-        if was_playing:
-            self.transport.play()
+        if audio_changed:
+            was_playing = self.transport.playing
+            position = self.transport.position()
+            self.transport.load(updated)
+            # Editing during playback should not throw you back to the start.
+            self.transport.seek(position)
+            if was_playing:
+                self.transport.play()
+        else:
+            # No audio touched, but a light block may still have moved the end
+            # of the show -- and the transport stops at that end.
+            self.transport.set_duration(updated.duration_s)
+
+        return {"ok": True, "audio": audio_changed,
+                "warnings": list(line.warnings)}
+
+    def save_project(self, data: dict) -> dict:
+        result = self.apply_project(data)
+        if not result.get("ok"):
+            return result
+
+        with self._lock:
+            current = self.project
+        project_module.save(current, current.path)
         return {"ok": True, "project": self.project_payload()}
 
     def close_project(self) -> None:
-        self.transport.stop()
+        self.transport.close()
         with self._lock:
             self.project = None
             self.timeline = None

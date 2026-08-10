@@ -15,8 +15,10 @@ testable on a machine that has no audio at all.
 
 from __future__ import annotations
 
+import atexit
 import threading
 import time
+import weakref
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +29,21 @@ from .project import AudioClip, Project
 DEFAULT_RATE = 48000
 BLOCKSIZE = 1024
 PEAKS_PER_CLIP = 800
+
+
+# Every transport that still holds a device. Now that stop() keeps the stream
+# open, something has to hand it back when the process ends -- PortAudio calling
+# into a half torn down interpreter is a crash, not a warning.
+_LIVE: weakref.WeakSet = weakref.WeakSet()
+
+
+@atexit.register
+def _release_devices() -> None:
+    for transport in list(_LIVE):
+        try:
+            transport.close()
+        except Exception:               # noqa: BLE001 - shutdown, report nothing
+            pass
 
 
 def db_to_gain(db: float) -> float:
@@ -94,33 +111,56 @@ class Transport:
         self._frame = 0                 # play head in frames
         self._frame_at = time.monotonic()
         self._latency = 0.0
+        self.device_name = ""
         self._loaded_duration = 0.0
+        _LIVE.add(self)
 
     # ------------------------------------------------------------- loading
 
     def load(self, project: Project) -> None:
         """Mixes the project down. Playback stops while this happens."""
-        self.stop()
+        self.pause()
         messages: list[str] = []
         clips: list[ClipInfo] = []
 
         import soundfile as sf
 
+        # Probe every clip once: it settles the mix rate, and for clips that
+        # run "to the end of the file" it is the only place their real length
+        # is known.
         rates: list[int] = []
-        for track in project.audio_tracks:
-            for clip in track.clips:
+        lengths: dict[tuple[int, int], float] = {}
+        for track_index, track in enumerate(project.audio_tracks):
+            for clip_index, clip in enumerate(track.clips):
                 path = self._resolve(project, clip)
                 if path is None:
                     continue
                 try:
-                    rates.append(sf.info(str(path)).samplerate)
+                    info = sf.info(str(path))
                 except Exception:       # noqa: BLE001 - unreadable file, reported later
                     continue
+                rates.append(info.samplerate)
+                lengths[(track_index, clip_index)] = max(
+                    0.0, info.frames / info.samplerate - clip.offset_s)
         # Mixing at the rate most files already use avoids resampling entirely
         # in the common case of one album and a few effects.
-        self.rate = max(set(rates), key=rates.count) if rates else DEFAULT_RATE
+        new_rate = max(set(rates), key=rates.count) if rates else DEFAULT_RATE
 
+        # Only hand the device back when the rate actually changes. Editing a
+        # clip remixes the project, and reopening the output for every drag
+        # would cost a second or more each time.
+        if new_rate != self.rate:
+            self.close()
+        self.rate = new_rate
+
+        # duration_s of 0 means "play to the end of the file", which the project
+        # itself cannot resolve -- without this the mix would be cut short.
         total = project.duration_s
+        for (track_index, clip_index), length in lengths.items():
+            clip = project.audio_tracks[track_index].clips[clip_index]
+            if clip.duration_s <= 0:
+                total = max(total, clip.start_s + length)
+
         frames = int(total * self.rate) + self.rate     # a second of tail
         mix = np.zeros((max(frames, 1), 2), dtype=np.float32)
 
@@ -170,6 +210,7 @@ class Transport:
             self._frame_at = time.monotonic()
             self._loaded_duration = total
 
+
     @staticmethod
     def _resolve(project: Project, clip: AudioClip) -> Path | None:
         if project.path is None:
@@ -205,8 +246,34 @@ class Transport:
 
     @property
     def duration_s(self) -> float:
-        return max(self._loaded_duration, self.mix.shape[0] / self.rate
-                   if self.rate else 0.0)
+        """Length of the show.
+
+        The mix buffer carries a second of padding behind it so a clip that
+        ends on a rounded frame is never clipped. That padding is not part of
+        the show, and reporting it would put the end marker in the editor a
+        second past the last note.
+        """
+        return self._loaded_duration
+
+    def set_duration(self, seconds: float) -> None:
+        """Moves the end of the show without remixing a single sample.
+
+        A show is as long as the last thing on any track, and light blocks
+        count towards that. Placing one past the end of the music has to extend
+        the show -- but it does not change the audio, so the buffer is padded
+        with silence instead of every file being read again.
+        """
+        with self._lock:
+            self._loaded_duration = max(0.0, seconds)
+            needed = int(self._loaded_duration * self.rate) + self.rate
+            if needed > self.mix.shape[0]:
+                grown = np.zeros((needed, 2), dtype=np.float32)
+                grown[:self.mix.shape[0]] = self.mix
+                self.mix = grown
+
+    def _limit(self) -> int:
+        """Last frame the play head may reach. The caller holds ``_lock``."""
+        return min(self.mix.shape[0], max(0, round(self._loaded_duration * self.rate)))
 
     def position(self) -> float:
         """Play head in seconds, interpolated between audio callbacks.
@@ -217,24 +284,36 @@ class Transport:
         smooth position.
         """
         with self._lock:
-            base = self._frame / self.rate
-            if not self._playing:
-                return base
-            elapsed = time.monotonic() - self._frame_at
-            return max(0.0, base + elapsed - self._latency)
+            return self._position_locked()
+
+    def _position_locked(self) -> float:
+        """``position()`` for callers that already hold ``_lock``."""
+        base = self._frame / self.rate
+        if not self._playing:
+            return base
+        elapsed = time.monotonic() - self._frame_at
+        return max(0.0, base + elapsed - self._latency)
 
     def _callback(self, outdata, frames, time_info, status) -> None:  # noqa: ARG002
         with self._lock:
+            # A paused transport keeps the device open but feeds it silence.
+            # Draining the mix here instead would keep the music running after
+            # pause, which is what it used to do.
+            if not self._playing:
+                outdata[:] = 0
+                return
+
+            limit = self._limit()
             start = self._frame
-            end = min(start + frames, self.mix.shape[0])
+            end = min(start + frames, limit)
             count = max(0, end - start)
             if count:
                 outdata[:count] = self.mix[start:end]
             if count < frames:
                 outdata[count:] = 0
-            self._frame = end
+            self._frame = max(start, end)
             self._frame_at = time.monotonic()
-            if end >= self.mix.shape[0]:
+            if end >= limit:
                 self._playing = False
 
     def _open(self) -> bool:
@@ -258,6 +337,12 @@ class Transport:
                 return False
 
             self._stream = stream
+            try:
+                import sounddevice as sd
+
+                self.device_name = str(sd.query_devices(stream.device)["name"])
+            except Exception:               # noqa: BLE001 - only a label
+                self.device_name = ""
             latency = getattr(stream, "latency", 0.0)
             self._latency = float(latency[0] if isinstance(latency, (tuple, list))
                                   else latency or 0.0)
@@ -275,6 +360,16 @@ class Transport:
     def play(self, at: float | None = None) -> None:
         if at is not None:
             self.seek(at)
+        else:
+            with self._lock:
+                # Pressing play at the end means play it again. Without this the
+                # transport starts and the next callback stops it in the same
+                # breath, so the button looks broken once a show has run out.
+                limit = self._limit()
+                if limit and self._frame >= limit:
+                    self._frame = 0
+                    self._frame_at = time.monotonic()
+
         with self._device_lock:
             has_device = self._open()
             with self._lock:
@@ -297,35 +392,48 @@ class Transport:
                 now = time.monotonic()
                 self._frame += int((now - self._frame_at) * self.rate)
                 self._frame_at = now
-                if self.mix.shape[0] and self._frame >= self.mix.shape[0]:
+                limit = self._limit()
+                if self._frame >= limit:
+                    self._frame = limit
                     self._playing = False
                     return
 
     def pause(self) -> None:
         with self._lock:
             if self._playing:
-                # Fold the interpolated part back in so pausing does not jump.
-                self._frame += int((time.monotonic() - self._frame_at) * self.rate)
-                self._frame = max(0, min(self._frame, max(0, self.mix.shape[0])))
+                # Stop exactly where it sounded like it stopped, latency and
+                # all, so resuming does not jump.
+                self._frame = max(0, min(int(self._position_locked() * self.rate),
+                                         self._limit()))
             self._playing = False
             self._frame_at = time.monotonic()
 
     def stop(self) -> None:
-        # Close the stream first: a callback still in flight would otherwise
-        # advance the play head again right after it was reset.
+        """Back to the start. The device stays open.
+
+        Opening an output stream costs a second or two here and much more on a
+        device that has to wake up first. Doing that on every press of play put
+        the whole show behind the button; keeping the stream and feeding it
+        silence makes play instant.
+        """
+        self.pause()
+        with self._lock:
+            self._frame = 0
+            self._frame_at = time.monotonic()
+
+    def close(self) -> None:
+        """Releases the audio device. The stream is closed exactly once."""
         self.pause()
         with self._device_lock:
             stream, self._stream = self._stream, None
             if stream is not None:
                 self._discard(stream)
         with self._lock:
-            self._frame = 0
             self._frame_at = time.monotonic()
 
     def seek(self, seconds: float) -> None:
         with self._lock:
-            limit = max(0, self.mix.shape[0])
-            self._frame = max(0, min(int(seconds * self.rate), limit))
+            self._frame = max(0, min(int(seconds * self.rate), self._limit()))
             self._frame_at = time.monotonic()
 
     @property
@@ -340,6 +448,10 @@ class Transport:
             "duration": round(self.duration_s, 3),
             "rate": self.rate,
             "device": self._stream is not None,
+            "device_name": self.device_name,
+            # What the output buffer costs. The position is corrected by it,
+            # but if sound still arrives late this is the number to look at.
+            "latency_ms": round(self._latency * 1000, 1),
             "device_error": self.device_error,
             "messages": list(self.messages),
         }

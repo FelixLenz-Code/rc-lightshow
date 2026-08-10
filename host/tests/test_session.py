@@ -8,6 +8,7 @@ the editor, so the switch is pinned down here.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from lightshow import project as project_module
@@ -204,3 +205,140 @@ def test_a_second_upload_of_the_same_name_does_not_overwrite(tmp_path):
     first = session.import_audio("ton.wav", wav.read_bytes())
     second = session.import_audio("ton.wav", wav.read_bytes())
     assert first["file"] != second["file"]
+
+
+# ------------------------------------------------------- live edits
+
+
+def tone_project(session, tmp_path, *, start_s: float, gain_db: float = 0.0,
+                 mute: bool = False) -> dict:
+    """A project with one two second tone, as plain data."""
+    import numpy as np
+    import soundfile as sf
+
+    result = session.new_project("live")
+    assert result["ok"], result
+    audio = session.project.path / "audio"
+    audio.mkdir(parents=True, exist_ok=True)
+    rate = 44100
+    t = np.arange(int(2 * rate)) / rate
+    sf.write(str(audio / "ton.wav"), (0.5 * np.sin(2 * np.pi * 440 * t)).astype("float32"), rate)
+
+    data = project_module.to_dict(session.project)
+    data["audio_tracks"][0]["gain_db"] = gain_db
+    data["audio_tracks"][0]["mute"] = mute
+    data["audio_tracks"][0]["clips"] = [
+        {"file": "audio/ton.wav", "start_s": start_s, "duration_s": 2.0}]
+    return data
+
+
+def loud_between(transport) -> tuple[float, float] | None:
+    """Where the mix actually carries sound, in seconds."""
+    import numpy as np
+
+    mono = np.max(np.abs(transport.mix), axis=1)
+    loud = np.nonzero(mono > 0.05)[0]
+    if not len(loud):
+        return None
+    return loud[0] / transport.rate, loud[-1] / transport.rate
+
+
+def test_moving_a_clip_moves_the_sound(tmp_path):
+    """It used to move on screen and keep playing from where it was.
+
+    The mix is built once and the callback only copies a slice out of it, so an
+    edit that never reaches the mix is an edit that is never heard.
+    """
+    session = make_session(tmp_path)
+    data = tone_project(session, tmp_path, start_s=0.0)
+    assert session.apply_project(data)["ok"]
+    assert loud_between(session.transport)[0] == pytest.approx(0.0, abs=0.05)
+
+    data["audio_tracks"][0]["clips"][0]["start_s"] = 5.0
+    result = session.apply_project(data)
+    assert result["ok"] and result["audio"], "das Audio wurde nicht neu gemischt"
+
+    start, end = loud_between(session.transport)
+    assert start == pytest.approx(5.0, abs=0.05), "der Ton liegt noch am alten Platz"
+    assert end == pytest.approx(7.0, abs=0.05)
+    session.transport.close()
+
+
+def test_the_track_volume_takes_effect(tmp_path):
+    """Turning a track down has to be audible, not only visible."""
+    import numpy as np
+
+    session = make_session(tmp_path)
+    data = tone_project(session, tmp_path, start_s=0.0)
+    assert session.apply_project(data)["ok"]
+    full = float(np.max(np.abs(session.transport.mix)))
+
+    data["audio_tracks"][0]["gain_db"] = -20.0
+    assert session.apply_project(data)["ok"]
+    quiet = float(np.max(np.abs(session.transport.mix)))
+
+    assert quiet == pytest.approx(full * 0.1, rel=0.15), \
+        f"-20 dB haben nichts bewirkt: {full:.3f} -> {quiet:.3f}"
+    session.transport.close()
+
+
+def test_muting_a_track_takes_effect(tmp_path):
+    import numpy as np
+
+    session = make_session(tmp_path)
+    data = tone_project(session, tmp_path, start_s=0.0)
+    assert session.apply_project(data)["ok"]
+
+    data["audio_tracks"][0]["mute"] = True
+    assert session.apply_project(data)["ok"]
+    assert float(np.max(np.abs(session.transport.mix))) == 0.0
+    session.transport.close()
+
+
+def test_a_light_block_alone_does_not_remix_the_audio(tmp_path):
+    """Dragging a block must not cost a remix of a five minute song."""
+    session = make_session(tmp_path)
+    data = tone_project(session, tmp_path, start_s=0.0)
+    assert session.apply_project(data)["ok"]
+
+    data["light_tracks"][0]["blocks"] = [
+        {"start_s": 0.0, "duration_s": 4.0, "cue": 3, "hue": 10,
+         "brightness": 200, "param": 128}]
+    result = session.apply_project(data)
+    assert result["ok"] and not result["audio"], "das Audio wurde unnötig neu gemischt"
+    session.transport.close()
+
+
+def test_a_light_block_still_moves_the_end_of_the_show(tmp_path):
+    """The show ends with the last thing on any track, light included."""
+    session = make_session(tmp_path)
+    data = tone_project(session, tmp_path, start_s=0.0)
+    assert session.apply_project(data)["ok"]
+    assert session.transport.duration_s == pytest.approx(2.0, abs=0.05)
+
+    data["light_tracks"][0]["blocks"] = [
+        {"start_s": 20.0, "duration_s": 5.0, "cue": 1, "hue": 0,
+         "brightness": 255, "param": 128}]
+    assert session.apply_project(data)["ok"]
+
+    assert session.transport.duration_s == pytest.approx(25.0, abs=0.05)
+    session.transport.seek(24.0)
+    assert session.transport.position() == pytest.approx(24.0, abs=0.05), \
+        "der Abspielkopf kommt nicht bis zum letzten Block"
+    session.transport.close()
+
+
+def test_applying_does_not_write_to_disk(tmp_path):
+    """Live editing is not saving; the file changes only on save."""
+    session = make_session(tmp_path)
+    data = tone_project(session, tmp_path, start_s=0.0)
+    assert session.save_project(data)["ok"]
+    on_disk = (session.project.path / project_module.PROJECT_FILE).read_text()
+
+    data["audio_tracks"][0]["clips"][0]["start_s"] = 9.0
+    assert session.apply_project(data)["ok"]
+    assert (session.project.path / project_module.PROJECT_FILE).read_text() == on_disk
+
+    assert session.save_project(data)["ok"]
+    assert (session.project.path / project_module.PROJECT_FILE).read_text() != on_disk
+    session.transport.close()

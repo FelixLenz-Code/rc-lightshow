@@ -244,6 +244,7 @@ def test_stop_rewinds_with_a_real_device_too(project_with_tone):
     transport.stop()
     assert transport.position() == 0.0
     assert not transport.playing
+    transport.close()
 
 
 def test_concurrent_play_opens_only_one_stream(project_with_tone, monkeypatch):
@@ -296,11 +297,12 @@ def test_concurrent_play_opens_only_one_stream(project_with_tone, monkeypatch):
         thread.join()
 
     assert len(opened) == 1, f"{len(opened)} Streams geöffnet statt einem"
-    transport.stop()
+    transport.close()
     assert opened[0].closed
 
 
-def test_stopping_closes_the_stream_exactly_once(project_with_tone, monkeypatch):
+def test_closing_closes_the_stream_exactly_once(project_with_tone, monkeypatch):
+    """Six threads, one close. A double close used to free a live callback."""
     import threading as th
 
     transport = Transport()
@@ -331,7 +333,7 @@ def test_stopping_closes_the_stream_exactly_once(project_with_tone, monkeypatch)
 
     def hammer():
         barrier.wait()
-        transport.stop()
+        transport.close()
 
     threads = [th.Thread(target=hammer) for _ in range(6)]
     for thread in threads:
@@ -365,7 +367,7 @@ def test_a_stream_that_will_not_close_is_kept_alive(project_with_tone, monkeypat
     monkeypatch.setitem(__import__("sys").modules, "sounddevice",
                         type("sd", (), {"OutputStream": StubbornStream}))
     transport.play()
-    transport.stop()
+    transport.close()
     assert len(transport._retired) == 1
 
 
@@ -393,3 +395,162 @@ def test_state_reports_a_missing_device_instead_of_pretending(project_with_tone,
     state = transport.state()
     assert state["playing"] and not state["device"]
     transport.pause()
+
+
+# ------------------------------------------------------- length of the show
+
+
+def test_duration_is_the_show_not_the_padding(project_with_tone):
+    """The mix carries a second of tail; the show does not.
+
+    Reporting the padded length put the end marker in the editor a second
+    behind the last note and let the play head wander into silence.
+    """
+    transport = Transport()
+    transport.load(project_with_tone)
+    assert transport.duration_s == pytest.approx(3.0, abs=0.01)
+    assert transport.mix.shape[0] > transport.duration_s * transport.rate
+
+
+def test_seeking_past_the_end_stops_at_the_end(project_with_tone, monkeypatch):
+    transport = silent(Transport(), monkeypatch)
+    transport.load(project_with_tone)
+    transport.seek(9999)
+    assert transport.position() == pytest.approx(transport.duration_s, abs=0.01)
+
+
+def test_a_clip_without_a_length_plays_to_the_end_of_the_file(tmp_path):
+    """duration_s of 0 means "to the end of the file".
+
+    Only the file knows how long that is, so a project whose clips all say 0
+    used to be mixed down to a single second of tail.
+    """
+    project = project_module.from_dict({"name": "t"})
+    project_module.save(project, tmp_path)
+    write_tone(tmp_path / "audio" / "lang.wav", seconds=4.0)
+
+    project = project_module.from_dict({
+        "name": "t",
+        "audio_tracks": [{"name": "Musik", "clips": [
+            {"file": "audio/lang.wav", "start_s": 2.0, "duration_s": 0}]}],
+    }, tmp_path)
+
+    transport = Transport()
+    transport.load(project)
+
+    assert transport.duration_s == pytest.approx(6.0, abs=0.05)
+    rate = transport.rate
+    assert np.max(np.abs(transport.mix[int(5.0 * rate):int(5.9 * rate)])) > 0.1
+
+
+def test_an_offset_shortens_what_is_left_of_the_file(tmp_path):
+    project = project_module.from_dict({"name": "t"})
+    project_module.save(project, tmp_path)
+    write_tone(tmp_path / "audio" / "lang.wav", seconds=4.0)
+
+    project = project_module.from_dict({
+        "name": "t",
+        "audio_tracks": [{"name": "Musik", "clips": [
+            {"file": "audio/lang.wav", "start_s": 0, "offset_s": 3.0, "duration_s": 0}]}],
+    }, tmp_path)
+
+    transport = Transport()
+    transport.load(project)
+    assert transport.duration_s == pytest.approx(1.0, abs=0.05)
+
+
+# ------------------------------------------------------------ pause and device
+
+
+def test_pausing_actually_silences_the_output(project_with_tone):
+    """Pause used to leave the stream running, so the music played on.
+
+    The play head froze while the audio kept draining the mix, which is the
+    worst of both: the show says it stopped and the field still hears music.
+    """
+    transport = Transport()
+    transport.load(project_with_tone)
+
+    calls = []
+    real = transport._callback
+
+    def spy(outdata, frames, time_info, status):
+        real(outdata, frames, time_info, status)
+        calls.append(float(np.max(np.abs(outdata))))
+
+    # The stream captures the callback when it opens, so the spy goes in first.
+    transport._callback = spy
+    transport.play()
+    time.sleep(0.25)
+    if not transport.state()["device"]:
+        transport.close()
+        pytest.skip("kein Audiogerät verfügbar")
+
+    transport.pause()
+    head = transport.position()
+    calls.clear()
+    time.sleep(0.4)
+
+    assert calls, "der Stream läuft nicht mehr — der Test misst nichts"
+    assert max(calls) == 0.0, "nach pause() kam noch Ton aus dem Puffer"
+    assert transport.position() == pytest.approx(head, abs=0.01), \
+        "der Abspielkopf ist nach pause() weitergelaufen"
+    transport.close()
+
+
+def test_stop_keeps_the_device_so_the_next_play_is_immediate(project_with_tone):
+    """Opening a stream costs a second or more; a show cannot pay that on play."""
+    transport = Transport()
+    transport.load(project_with_tone)
+    transport.play()
+    time.sleep(0.2)
+    if not transport.state()["device"]:
+        transport.close()
+        pytest.skip("kein Audiogerät verfügbar")
+
+    transport.stop()
+    assert transport.position() == 0.0
+    assert transport.state()["device"], "stop() hat das Gerät wieder hergegeben"
+
+    started = time.monotonic()
+    transport.play()
+    assert time.monotonic() - started < 0.25, "play() musste das Gerät erst öffnen"
+    transport.close()
+    assert not transport.state()["device"]
+
+
+def test_the_reported_latency_is_visible(project_with_tone):
+    """If sound still arrives late, this is the number to look at."""
+    transport = Transport()
+    transport.load(project_with_tone)
+    state = transport.state()
+    assert "latency_ms" in state and state["latency_ms"] >= 0
+    transport.close()
+
+
+def test_play_at_the_end_starts_over(project_with_tone, monkeypatch):
+    """A transport parked at the end used to swallow every press of play.
+
+    play() set the flag, the next callback saw the head past the limit and
+    cleared it again -- so the button, and the space bar, did nothing at all
+    once a show had run out.
+    """
+    transport = silent(Transport(), monkeypatch)
+    transport.load(project_with_tone)
+    transport.seek(transport.duration_s)
+    assert transport.position() == pytest.approx(transport.duration_s, abs=0.01)
+
+    transport.play()
+    assert transport.playing, "play() am Ende hat nichts getan"
+    assert transport.position() < 0.5, "es wurde nicht an den Anfang gesprungen"
+    transport.close()
+
+
+def test_play_from_a_given_position_does_not_rewind(project_with_tone, monkeypatch):
+    """Only the bare play() restarts; seeking somewhere explicit still wins."""
+    transport = silent(Transport(), monkeypatch)
+    transport.load(project_with_tone)
+    transport.seek(transport.duration_s)
+    transport.play(1.0)
+    assert transport.position() == pytest.approx(1.0, abs=0.05)
+    transport.close()
