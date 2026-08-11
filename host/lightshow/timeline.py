@@ -88,7 +88,14 @@ class Timeline:
     def _to_us(self, channel: ChannelCfg, port: PortCfg, value: int) -> int:
         """value is 0..255, or a step index when the channel is quantised."""
         if channel.quantize:
-            return step_us(port, channel.quantize, value)
+            step = max(0, min(channel.quantize - 1, value))
+            if channel.invert:
+                # The MIDI mapper inverts before quantising, which mirrors the
+                # step index. Skipping it here would make the same channel mean
+                # two different things depending on whether the show runs from
+                # the timeline or from the DAW.
+                step = channel.quantize - 1 - step
+            return step_us(port, channel.quantize, step)
         level = max(0, min(255, value))
         if channel.invert:
             level = 255 - level

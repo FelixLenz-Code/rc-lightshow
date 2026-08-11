@@ -252,3 +252,31 @@ def test_listing_finds_saved_projects(tmp_path):
     for name in ("eins", "zwei"):
         project_module.save(project_module.from_dict({"name": name}), tmp_path / name)
     assert [p["name"] for p in project_module.list_projects(tmp_path)] == ["eins", "zwei"]
+
+
+def test_an_inverted_quantised_channel_matches_the_midi_path():
+    """The MIDI mapper inverts before quantising; the timeline used to skip it.
+
+    Same channel, same cue -- but a different value depending on whether the
+    show ran from the project or from the DAW.
+    """
+    from lightshow.config import step_us
+    from lightshow.mapping import Slot
+
+    show = make_show()
+    model = show.models[0]
+    port = show.ports[0]
+    cue = model.channels[0]
+    cue.invert = True
+
+    line = timeline(show, make_project([{"start_s": 0, "duration_s": 4, "cue": 7}]))
+    from_timeline = line.frame(1.0)[0][0]
+
+    # What the mapper produces for the same step, driven from the top of the
+    # raw range so the inversion has something to mirror.
+    slot = Slot(model=model, port=port, channel=cue, port_index=0)
+    slot.raw = 7 * (slot.raw_max + 1) // cue.quantize
+    from_midi = slot.microseconds()
+
+    assert from_timeline == from_midi
+    assert from_timeline == step_us(port, cue.quantize, cue.quantize - 1 - 7)
