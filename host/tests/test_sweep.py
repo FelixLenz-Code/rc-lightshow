@@ -91,7 +91,7 @@ def test_only_the_channel_under_test_moves():
     show = make_show()
     model = show.models[0]
     points = sweep.plan(show, model)
-    frame = sweep.frames_for(show, points[5])[0]
+    frame = sweep.frames_for(show, model, points[5])[0]
 
     assert frame[0] == points[5].intended_us
     for index, channel in enumerate(model.channels[1:], start=1):
@@ -291,3 +291,34 @@ def test_the_firmware_only_prints_on_a_new_frame():
     text = FIRMWARE_MAIN.read_text()
     assert "rc.frames != last_frames" in text, \
         "die MEAS-Ausgabe hängt nicht mehr am Frame-Zähler"
+
+
+def two_model_show() -> ShowCfg:
+    """Two aircraft, two transmitters -- the normal case, and the risky one.
+
+    Channel numbers are counted per transmitter, so both models own a channel 1.
+    """
+    channels = lambda: [                                        # noqa: E731
+        ChannelCfg(role="cue", cc=20, quantize=32, failsafe=1000),
+        ChannelCfg(role="hue", cc=21, failsafe=1500),
+        ChannelCfg(role="brightness", cc=22, failsafe=1000),
+        ChannelCfg(role="param", cc=23, failsafe=1500),
+    ]
+    return ShowCfg(
+        ports=[PortCfg(id=0, name="eule_tx", nchan=8),
+               PortCfg(id=1, name="falke_tx", nchan=8)],
+        models=[ModelCfg("eule", 1, 0, tx_offset=0, channels=channels()),
+                ModelCfg("falke", 2, 1, tx_offset=0, channels=channels())],
+    )
+
+
+def test_the_other_aircraft_holds_its_failsafe_during_a_sweep():
+    """Its transmitter used to follow along, because channel 1 exists twice."""
+    show = two_model_show()
+    eule, falke = show.models
+    point = next(p for p in sweep.plan(show, eule) if p.phase == "steps")
+    frames = sweep.frames_for(show, eule, point)
+
+    assert frames[eule.tx_port][0] == point.intended_us
+    assert frames[falke.tx_port][0] == falke.channels[0].failsafe
+    assert frames[falke.tx_port][:4] == [c.failsafe for c in falke.channels]

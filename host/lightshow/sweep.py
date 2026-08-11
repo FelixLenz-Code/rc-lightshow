@@ -85,23 +85,25 @@ def plan(show: ShowCfg, model: ModelCfg, *, zone: int = 0,
     return points
 
 
-def frames_for(show: ShowCfg, point: Point) -> list[list[int]]:
-    """A full transmitter frame with one channel set to the point's value.
+def frames_for(show: ShowCfg, model: ModelCfg, point: Point) -> list[list[int]]:
+    """A full transmitter frame with one channel of one model set to the point.
 
     Everything else holds its failsafe, so nothing but the channel under test
     moves -- a neighbour changing at the same time would be indistinguishable
-    from crosstalk.
+    from crosstalk. That has to include the *other* aircraft: channel numbers
+    are per transmitter, so writing the value wherever the number fits would
+    also drive the same channel on every other model's transmitter, and a second
+    aircraft would visibly follow the measurement.
     """
     values = [[port.min_us] * port.nchan for port in show.ports]
-    for model in show.models:
-        for offset, channel in enumerate(model.channels):
-            values[model.tx_port][model.tx_offset + offset] = channel.failsafe
+    for other in show.models:
+        for offset, channel in enumerate(other.channels):
+            values[other.tx_port][other.tx_offset + offset] = channel.failsafe
 
-    for model in show.models:
-        first = model.tx_offset + 1
-        last = model.tx_offset + len(model.channels)
-        if first <= point.channel <= last:
-            values[model.tx_port][point.channel - 1] = point.intended_us
+    first = model.tx_offset + 1
+    last = model.tx_offset + len(model.channels)
+    if first <= point.channel <= last:
+        values[model.tx_port][point.channel - 1] = point.intended_us
     return values
 
 
@@ -113,7 +115,7 @@ def run(show: ShowCfg, model: ModelCfg, link, points: list[Point], *,
     seq = 0
 
     for index, point in enumerate(points):
-        frame = frames_for(show, point)
+        frame = frames_for(show, model, point)
         point.t_start = time.monotonic()
         deadline = point.t_start + getattr(point, "dwell_s", DEFAULT_DWELL_S)
         while time.monotonic() < deadline:
