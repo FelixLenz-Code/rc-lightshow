@@ -72,12 +72,19 @@ static void sbus_poll(void) {
 }
 
 // ----------------------------------------------------------------- PWM ------
+//
+// A receiver with SBUS needs none of this, so a model may declare no PWM pins
+// at all. Everything below is therefore compiled away rather than left to run
+// over empty tables -- an array of zero elements has no s_pwm_pins[0] to read.
+
+static volatile uint32_t s_pwm_frames;
+
+#if PWM_COUNT > 0
 
 static const uint8_t s_pwm_pins[PWM_COUNT] = PWM_PINS;
 static volatile uint32_t s_pwm_rise_us[PWM_COUNT];
 static volatile uint16_t s_pwm_width_us[PWM_COUNT];
 static volatile uint32_t s_pwm_last_ms[PWM_COUNT];
-static volatile uint32_t s_pwm_frames;
 
 static void pwm_irq(uint gpio, uint32_t events) {
     for (uint8_t i = 0; i < PWM_COUNT; i++) {
@@ -97,6 +104,8 @@ static void pwm_irq(uint gpio, uint32_t events) {
     }
 }
 
+#endif // PWM_COUNT > 0
+
 // ---------------------------------------------------------------- public ----
 
 void rc_input_init(void) {
@@ -113,6 +122,7 @@ void rc_input_init(void) {
     uart_set_format(SBUS_UART, 8, 2, UART_PARITY_EVEN);
     uart_set_fifo_enabled(SBUS_UART, true);
 
+#if PWM_COUNT > 0
     for (uint8_t i = 0; i < PWM_COUNT; i++) {
         gpio_init(s_pwm_pins[i]);
         gpio_set_dir(s_pwm_pins[i], GPIO_IN);
@@ -126,6 +136,7 @@ void rc_input_init(void) {
         gpio_set_irq_enabled(s_pwm_pins[i],
                              GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
     }
+#endif
 }
 
 void rc_input_poll(rc_state_t *out) {
@@ -144,6 +155,7 @@ void rc_input_poll(rc_state_t *out) {
 
     // Fall back to the PWM inputs; a channel counts as live on its own.
     bool any = false;
+#if PWM_COUNT > 0
     for (uint8_t i = 0; i < PWM_COUNT; i++) {
         if (s_pwm_last_ms[i] != 0 && now_ms - s_pwm_last_ms[i] < RC_TIMEOUT_MS) {
             out->channel_us[i] = s_pwm_width_us[i];
@@ -152,6 +164,7 @@ void rc_input_poll(rc_state_t *out) {
             out->channel_us[i] = RC_MIN_US;
         }
     }
+#endif
     for (uint8_t i = PWM_COUNT; i < RC_MAX_CHANNELS; i++) {
         out->channel_us[i] = RC_MIN_US;
     }

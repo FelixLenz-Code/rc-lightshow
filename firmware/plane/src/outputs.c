@@ -12,7 +12,11 @@
 #include "ws2812.pio.h"
 
 static const zone_cfg_t  s_zones[]  = ZONES;
+// A model may carry nothing but relays, and a table of zero elements is not
+// standard C -- so the strips follow the same pattern as the relays below.
+#if STRIP_COUNT > 0
 static const strip_cfg_t s_strips[] = STRIPS;
+#endif
 #if RELAY_COUNT > 0
 static const relay_cfg_t s_relays[] = RELAYS;
 static relay_state_t     s_relay_state[RELAY_COUNT];
@@ -22,8 +26,10 @@ static const nav_light_t s_nav[] = NAV_LIGHTS;
 #endif
 
 // One PIO state machine per strip: pio0 takes the first four, pio1 the rest.
+#if STRIP_COUNT > 0
 static PIO  s_strip_pio[STRIP_COUNT];
 static uint s_strip_sm[STRIP_COUNT];
+#endif
 
 _Static_assert(ZONE_COUNT  <= MAX_ZONES,  "too many zones");
 _Static_assert(STRIP_COUNT <= MAX_STRIPS, "too many strips, only 8 PIO state machines exist");
@@ -31,6 +37,7 @@ _Static_assert(RELAY_COUNT <= MAX_RELAYS, "too many relays");
 _Static_assert(NAV_COUNT   <= MAX_NAV_LIGHTS, "too many navigation lights");
 
 void outputs_init(void) {
+#if STRIP_COUNT > 0
     int offset[2] = {-1, -1};
 
     for (uint8_t i = 0; i < STRIP_COUNT; i++) {
@@ -44,6 +51,7 @@ void outputs_init(void) {
         pio_sm_claim(pio, s_strip_sm[i]);
         ws2812_program_init(pio, s_strip_sm[i], (uint)offset[block], s_strips[i].pin);
     }
+#endif
 
 #if RELAY_COUNT > 0
     for (uint8_t i = 0; i < RELAY_COUNT; i++) {
@@ -59,14 +67,19 @@ void outputs_init(void) {
 
 uint16_t outputs_zone_pixels(uint8_t zone) {
     uint16_t needed = 0;
+#if STRIP_COUNT > 0
     for (uint8_t i = 0; i < STRIP_COUNT; i++) {
         if (s_strips[i].zone != zone) continue;
         uint16_t end = (uint16_t)(s_strips[i].offset + s_strips[i].count);
         if (end > needed) needed = end;
     }
+#else
+    (void)zone;
+#endif
     return needed > MAX_ZONE_PIXELS ? MAX_ZONE_PIXELS : needed;
 }
 
+#if STRIP_COUNT > 0
 // Navigation lights win over whatever the effect produced.
 static bool nav_colour(uint8_t strip, uint16_t index, rgb_t *out) {
 #if NAV_COUNT > 0
@@ -85,8 +98,12 @@ static bool nav_colour(uint8_t strip, uint16_t index, rgb_t *out) {
 #endif
     return false;
 }
+#endif // STRIP_COUNT > 0
 
 void outputs_show(uint8_t zone, const rgb_t *pixels) {
+#if STRIP_COUNT == 0
+    (void)zone; (void)pixels;
+#else
     uint16_t available = outputs_zone_pixels(zone);
 
     for (uint8_t i = 0; i < STRIP_COUNT; i++) {
@@ -105,6 +122,7 @@ void outputs_show(uint8_t zone, const rgb_t *pixels) {
             pio_sm_put_blocking(s_strip_pio[i], s_strip_sm[i], grb << 8u);
         }
     }
+#endif
 }
 
 #if RELAY_COUNT > 0
