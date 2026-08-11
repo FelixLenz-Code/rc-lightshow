@@ -173,6 +173,13 @@ static void ports_teardown(void) {
         if (p->dma >= 0) {
             dma_channel_set_irq0_enabled(p->dma, false);
             dma_channel_abort(p->dma);
+            // Masking the interrupt hides a pending completion but does not
+            // retire it. Leaving it latched means the next configuration re-arms
+            // the same channel and takes that stale interrupt immediately -- at
+            // a moment when s_nports is still 0, so dma_irq_handler() finds no
+            // port to blame and never acknowledges it. The interrupt would then
+            // re-enter forever and all eight outputs would go quiet.
+            dma_hw->ints0 = 1u << p->dma;
             dma_channel_unclaim(p->dma);
             p->dma = -1;
         }
