@@ -185,3 +185,33 @@ def test_an_unknown_endpoint_answers_json(server):
     status, body = get(url + "/api/gibtsnicht")
     assert status == 404
     assert json.loads(body)["error"]
+
+
+@pytest.mark.parametrize("path,body", [
+    ("/api/config", {"config": {}}),
+    ("/api/project/new", {"name": "Nachtflug"}),
+    ("/api/project/open", {"dir": "irgendwas"}),
+    ("/api/project", {"project": {}}),
+    ("/api/project/apply", {"project": {}}),
+    ("/api/audio/musik.wav", None),
+])
+def test_nothing_on_disk_can_be_changed_from_the_network(server, remote, path, body):
+    """show.yaml decides the failsafe values and the channel mapping.
+
+    Rewriting it from the WLAN is at least as serious as starting a compiler,
+    which was behind the gate from the start.
+    """
+    _, url = server
+    status, payload = post(url + path, body)
+    assert status == 403
+    assert not payload["ok"]
+
+
+@pytest.mark.parametrize("path,body", [
+    ("/api/blackout", {"on": True}),
+    ("/api/transport", {"action": "stop"}),
+])
+def test_the_running_show_can_still_be_reached_from_a_phone(server, remote, path, body):
+    """Blackout and transport change nothing on disk -- that is the point of them."""
+    _, url = server
+    assert post(url + path, body)[0] == 200

@@ -492,8 +492,18 @@ def _make_handler(server: Server):
 
         # ----------------------------------------------------------- POST ---
 
+        # Everything that leaves something behind on disk. Blackout and the
+        # transport only move the running show, so a phone on the field may
+        # still reach those; the rest changes what the next start will do.
+        WRITES_TO_DISK = ("/api/config", "/api/plane/", "/api/project",
+                          "/api/project/new", "/api/project/open",
+                          "/api/project/apply", "/api/audio/", "/api/job")
+
         def do_POST(self) -> None:
             path = urlparse(self.path).path
+            if path.startswith(self.WRITES_TO_DISK) and not self._is_local():
+                self._json({"ok": False, "error": self.REMOTE_DENIED}, 403)
+                return
             try:
                 if path == "/api/config":
                     self._json(server.save_config(self._read_json().get("config", {})))
@@ -502,11 +512,6 @@ def _make_handler(server: Server):
                     server.mapper.set_blackout(state)
                     self._json({"ok": True, "blackout": state})
                 elif path.startswith("/api/plane/"):
-                    # Writes into the repository, so it belongs with building
-                    # and flashing rather than with the read-only endpoints.
-                    if not self._is_local():
-                        self._json({"ok": False, "error": self.REMOTE_DENIED}, 403)
-                        return
                     name = unquote(path.split("/api/plane/")[1])
                     self._json(server.write_plane_header(name))
                 elif path == "/api/project/new":
@@ -527,9 +532,6 @@ def _make_handler(server: Server):
                 elif path.startswith("/api/audio/"):
                     self._upload_audio(unquote(path.split("/api/audio/")[1]))
                 elif path == "/api/job":
-                    if not self._is_local():
-                        self._json({"ok": False, "error": self.REMOTE_DENIED}, 403)
-                        return
                     body = self._read_json()
                     self._json(server.start_job(body.get("kind", ""),
                                                 body.get("model")))
