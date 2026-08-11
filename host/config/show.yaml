@@ -88,6 +88,11 @@ tx_ports:
 #   brightness  Master-Dimmer; mit cc_lsb 14 Bit fuer ruckelfreie Fades
 #   param       Tempo bzw. zweiter Effektparameter
 #
+# Die Reihenfolge ist bindend, nicht bloss Konvention: Bordfirmware und Timeline
+# lesen die vier Kanaele einer Zone ueber ihre Position, den Namen sieht danach
+# niemand mehr an. Vertauscht heisst also, das Modell reagiert auf den falschen
+# Kanal -- ohne dass irgendwo etwas falsch aussieht. Die Pruefung faengt es ab.
+#
 # quantize: Anzahl diskreter Stufen. Der Wert landet in der Mitte seiner Stufe,
 # damit ein verrauschter Kanal nie auf einer Grenze sitzt.
 

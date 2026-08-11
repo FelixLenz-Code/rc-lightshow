@@ -111,6 +111,12 @@ Der LED-Streifen bekommt seine 5 V **direkt vom UBEC**, nicht über den Pico.
 | 10–13  | PWM-Eingänge, Fallback ohne SBUS            |
 | 39/38  | VSYS / GND vom UBEC                         |
 
+Der SBUS-Eingang ist **nicht** frei wählbar: die Firmware liest ihn mit UART1,
+und dessen RX-Leitung führt der RP2040 nur auf GPIO 5, 9 und 21 heraus (25 ist
+die Onboard-LED). Ein anderer Pin bekommt zwar die UART-Funktion, landet dort
+aber auf TX oder einer Handshake-Leitung — das Image baut, bootet, meldet sich
+normal und empfängt nie ein Frame. Die Konfigurationsprüfung weist das ab.
+
 Das ist die Vorgabe in `config.h`. Strips, Relais und Zonen stehen dort als
 Tabellen — bis zu 8 Strips (je eine PIO-State-Machine) und 8 Relais, jedes
 Modell so, wie es gebraucht wird.

@@ -46,6 +46,13 @@ class PortCfg:
 # the on-board regulator, USB sensing and the LED; 29 measures VSYS.
 PICO_USABLE_GPIO = set(range(0, 23)) | {26, 27, 28}
 
+# The airborne firmware reads SBUS with uart1, and the RP2040 only routes that
+# peripheral's RX line to four pins -- GPIO 25 is the on-board LED, so three are
+# left on the header. Any other pin gets funcsel UART and then sits on TX, CTS or
+# RTS: the image builds, boots and reports itself normally, and never receives a
+# single frame. That is an afternoon of searching, so it is refused here.
+PICO_UART1_RX_GPIO = {5, 9, 21}
+
 # GPIO number -> physical pin on the Pico header, so the wiring overview can
 # name the pin you actually have to solder to.
 PICO_PHYSICAL_PIN = {
@@ -55,6 +62,12 @@ PICO_PHYSICAL_PIN = {
 }
 
 RELAY_SOURCES = ("pixel", "brightness", "cue", "channel")
+
+# A zone is four channels in this order, and both the airborne firmware and the
+# project timeline address them by position, not by name. So the order is not a
+# convention -- it is the wiring, and a swapped pair means the model reacts to
+# the wrong channel without anything looking wrong anywhere.
+CHANNEL_ROLES = ("cue", "hue", "brightness", "param")
 
 MAX_STRIPS = 8      # one PIO state machine each
 MAX_RELAYS = 8
@@ -241,6 +254,31 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
     if not 30 <= plane.render_hz <= 1000:
         raise ConfigError(f"{where}: render_hz must be between 30 and 1000")
 
+    _check_gpio(plane.sbus_pin, where, "SBUS input")
+    if plane.sbus_pin not in PICO_UART1_RX_GPIO:
+        raise ConfigError(
+            f"{where}: GPIO {plane.sbus_pin} cannot receive SBUS -- the firmware "
+            f"uses uart1, whose RX line only reaches GPIO "
+            f"{', '.join(str(p) for p in sorted(PICO_UART1_RX_GPIO))}"
+        )
+
+    # An SBUS-only model may leave these out entirely; what must not happen is a
+    # list that looks plausible and quietly loses a channel.
+    seen_pwm: set[int] = set()
+    for index, pin in enumerate(plane.pwm_pins):
+        _check_gpio(pin, f"{where}.pwm_pins[{index}]", "PWM input")
+        if pin in seen_pwm:
+            raise ConfigError(
+                f"{where}: GPIO {pin} appears twice in pwm_pins -- the firmware "
+                f"serves only the first of them, so a channel would never update"
+            )
+        seen_pwm.add(pin)
+    if plane.pwm_pins and len(plane.pwm_pins) != CHANNELS_PER_ZONE:
+        raise ConfigError(
+            f"{where}: pwm_pins needs {CHANNELS_PER_ZONE} pins (cue, hue, "
+            f"brightness, param) or none at all, got {len(plane.pwm_pins)}"
+        )
+
     strips = data.get("strips") or []
     relays = data.get("relays") or []
     if len(strips) > MAX_STRIPS:
@@ -303,8 +341,13 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
             raise ConfigError(f"{spot}: minimum times cannot be negative")
 
         if relay.source == "pixel":
-            zone_pixels = sum(
-                s.count for s in plane.strips if s.zone == relay.zone
+            # The virtual chain is as long as the furthest strip reaches, not as
+            # long as the pixel counts added up: strips sharing an offset mirror
+            # each other. Summing would accept an index the firmware then reads
+            # as out of range, and the relay would simply never switch.
+            zone_pixels = max(
+                (s.offset + s.count for s in plane.strips if s.zone == relay.zone),
+                default=0,
             )
             if zone_pixels and relay.arg >= zone_pixels:
                 raise ConfigError(
@@ -441,6 +484,19 @@ def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
         _parse_channel(entry, f"{where}.channels[{index}]", port)
         for index, entry in enumerate(channels)
     ]
+
+    # Both the airborne firmware and the timeline read a zone's four channels by
+    # position. Nothing downstream ever looks at `role` again, so a wrong order
+    # here is invisible everywhere else -- the model just answers to the wrong
+    # channel. Checking it is the only place the mistake can still be caught.
+    for index, channel in enumerate(model.channels):
+        expected = CHANNEL_ROLES[index % CHANNELS_PER_ZONE]
+        if channel.role != expected:
+            raise ConfigError(
+                f"{where}.channels[{index}]: role '{channel.role}', but position "
+                f"{index + 1} of a zone is '{expected}' -- the order "
+                f"{', '.join(CHANNEL_ROLES)} is what the firmware decodes"
+            )
 
     seen: dict[int, str] = {}
     for channel in model.channels:

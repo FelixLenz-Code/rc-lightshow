@@ -133,3 +133,120 @@ def test_a_sync_pulse_the_firmware_would_refuse_is_caught_here(tmp_path):
 def test_a_pulse_range_outside_the_firmware_window_is_rejected(tmp_path):
     with pytest.raises(config_module.ConfigError, match=r"500\.\.2500"):
         config_module.load(write(tmp_path, port(max_us=2600, frame_us=40000)))
+
+
+# ------------------------------------------------------- airborne pin choices
+
+
+PLANE = BASE + """
+      - {role: brightness, cc: 22, failsafe: 1000}
+      - {role: param, cc: 23, failsafe: 1500}
+    plane:
+      board: pico
+      strips:
+        - {name: rumpf, pin: 2, count: 30}
+"""
+
+
+def test_an_sbus_pin_uart1_cannot_reach_is_rejected(tmp_path):
+    """The image would build, boot and never receive a frame.
+
+    SBUS runs on uart1, and its RX line only comes out on a few pins. Any other
+    pin gets funcsel UART and lands on TX or a flow control line instead.
+    """
+    text = PLANE.replace("board: pico", "board: pico\n      sbus_pin: 4")
+    with pytest.raises(config_module.ConfigError, match="cannot receive SBUS"):
+        config_module.load(write(tmp_path, text))
+
+
+@pytest.mark.parametrize("pin", sorted(config_module.PICO_UART1_RX_GPIO))
+def test_the_pins_uart1_does_reach_are_accepted(tmp_path, pin):
+    text = PLANE.replace("board: pico", f"board: pico\n      sbus_pin: {pin}")
+    show = config_module.load(write(tmp_path, text))
+    assert show.models[0].plane.sbus_pin == pin
+
+
+def test_a_pwm_pin_that_is_not_on_the_header_is_rejected(tmp_path):
+    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: [10, 11, 12, 30]")
+    with pytest.raises(config_module.ConfigError, match="GPIO 30"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_a_repeated_pwm_pin_is_rejected(tmp_path):
+    """pwm_irq() serves the first match and returns, so the second never updates."""
+    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: [10, 10, 12, 13]")
+    with pytest.raises(config_module.ConfigError, match="twice in pwm_pins"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_a_partial_set_of_pwm_pins_is_rejected(tmp_path):
+    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: [10, 11]")
+    with pytest.raises(config_module.ConfigError, match="pwm_pins needs 4"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_a_receiver_with_sbus_may_have_no_pwm_pins_at_all(tmp_path):
+    """Legitimate: one wire from the receiver, nothing else soldered."""
+    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: []")
+    show = config_module.load(write(tmp_path, text))
+    assert show.models[0].plane.pwm_pins == []
+
+
+# --------------------------------------------------------------- channel roles
+
+
+def test_swapped_channel_roles_are_rejected(tmp_path):
+    """Nothing downstream reads `role`; the firmware decodes by position."""
+    text = BASE.replace("- {role: cue, cc: 20, quantize: 32, failsafe: 1000}\n"
+                        "      - {role: hue, cc: 21, failsafe: 1500}",
+                        "- {role: hue, cc: 21, failsafe: 1500}\n"
+                        "      - {role: cue, cc: 20, quantize: 32, failsafe: 1000}")
+    with pytest.raises(config_module.ConfigError, match="position 1 of a zone"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_an_invented_role_name_is_rejected(tmp_path):
+    text = BASE.replace("role: hue", "role: banane")
+    with pytest.raises(config_module.ConfigError, match="banane"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_a_second_zone_repeats_the_same_four_roles(tmp_path):
+    text = BASE + """
+      - {role: brightness, cc: 22, failsafe: 1000}
+      - {role: param, cc: 23, failsafe: 1500}
+      - {role: cue, cc: 24, quantize: 32, failsafe: 1000}
+      - {role: hue, cc: 25, failsafe: 1500}
+      - {role: brightness, cc: 26, failsafe: 1000}
+      - {role: param, cc: 27, failsafe: 1500}
+"""
+    show = config_module.load(write(tmp_path, text))
+    assert show.models[0].zone_count == 2
+
+
+# ---------------------------------------------------------------- relay pixels
+
+
+def test_a_relay_may_not_follow_a_pixel_beyond_the_zones_chain(tmp_path):
+    """Mirrored strips share a chain, so the zone is as long as one of them.
+
+    Adding the pixel counts up would accept an index the firmware reads as out
+    of range -- and the relay would then simply never switch.
+    """
+    text = PLANE + """
+        - {name: flaeche, pin: 3, count: 30, offset: 0}
+      relays:
+        - {name: licht, pin: 6, source: pixel, arg: 45}
+"""
+    with pytest.raises(config_module.ConfigError, match="only has 30"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_strips_laid_end_to_end_do_make_a_longer_chain(tmp_path):
+    text = PLANE + """
+        - {name: flaeche, pin: 3, count: 30, offset: 30}
+      relays:
+        - {name: licht, pin: 6, source: pixel, arg: 45}
+"""
+    show = config_module.load(write(tmp_path, text))
+    assert show.models[0].plane.relays[0].arg == 45
