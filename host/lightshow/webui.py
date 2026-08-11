@@ -356,8 +356,17 @@ class Server:
             uf2 = self.repo_root / "build/pico" / "lightshow_tx.uf2"
             device = None if self.link.dry_run else self.link.device
             if device:
-                self.link.close()  # release the port so the reset can happen
-            target = lambda: flasher.flash(job, uf2, device)  # noqa: E731
+                # Keep the port released for the whole job: the sending loop
+                # keeps polling and would otherwise reclaim it between here and
+                # the 1200 baud reset.
+                self.link.suspend()
+
+            def target() -> None:
+                try:
+                    flasher.flash(job, uf2, device)
+                finally:
+                    if device:
+                        self.link.resume()
         else:
             return {"ok": False, "error": f"unbekannter Vorgang '{kind}'"}
 

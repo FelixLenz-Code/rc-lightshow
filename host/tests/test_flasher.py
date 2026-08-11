@@ -183,3 +183,67 @@ def test_an_unreadable_image_is_reported(tmp_path):
     flasher.flash(job, tmp_path / "gibtsnicht.uf2", None, roots=[tmp_path])
     assert not job.ok
     assert "zuerst bauen" in "\n".join(job.lines)
+
+
+# -------------------------------------------------------------- write failures
+
+
+class _FlushFails:
+    """A mount that takes the bytes and only fails when they have to be durable.
+
+    That is what a full or read-only FAT volume does with buffered writes:
+    write() succeeds into the buffer, ENOSPC surfaces at the flush.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+    def write(self, data):
+        return len(data)
+
+    def flush(self):
+        raise OSError(28, "No space left on device")
+
+    def fileno(self):
+        return -1
+
+
+def test_a_write_that_never_reached_the_board_is_not_a_success(tmp_path, monkeypatch):
+    """A half-written image reported as flashed is how a dead board gets built in."""
+    drive = make_bootsel(tmp_path)
+    uf2 = tmp_path / "lightshow_tx.uf2"
+    uf2.write_bytes(b"\x00" * 4096)
+
+    real_open = open
+    monkeypatch.setattr(
+        "builtins.open",
+        lambda path, mode="r", *a, **k: _FlushFails()
+        if "w" in mode and str(drive) in str(path)
+        else real_open(path, mode, *a, **k),
+    )
+    monkeypatch.setattr(flasher.os, "fsync", lambda fd: None)
+
+    job = flasher.Job("test")
+    flasher.flash(job, uf2, None, roots=[tmp_path])
+
+    assert job.done and not job.ok
+    assert any("fehlgeschlagen" in line for line in job.lines)
+
+
+def test_the_volume_vanishing_after_the_last_byte_still_counts_as_flashed(tmp_path):
+    """The board reboots the moment it has the image; that is the normal ending."""
+    drive = make_bootsel(tmp_path)
+    uf2 = tmp_path / "lightshow_tx.uf2"
+    uf2.write_bytes(b"\x00" * 4096)
+
+    job = flasher.Job("test")
+    flasher.flash(job, uf2, None, roots=[tmp_path])
+
+    assert job.done and job.ok
+    assert (drive / uf2.name).read_bytes() == uf2.read_bytes()

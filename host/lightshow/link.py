@@ -25,14 +25,32 @@ class PicoLink:
         self._serial: serial.Serial | None = None
         self._next_attempt = 0.0
         self._rx = bytearray()
+        self._suspended = False
 
     @property
     def connected(self) -> bool:
         return self.dry_run or self._serial is not None
 
+    def suspend(self) -> None:
+        """Releases the port and keeps it released until resume().
+
+        Flashing the ground station needs the device free: the bootloader is
+        entered by opening it at 1200 baud. A plain close() would not do, since
+        the sending loop calls poll() a hundred times a second and would grab
+        the port back long before the flasher gets to it.
+        """
+        self._suspended = True
+        self.close()
+
+    def resume(self) -> None:
+        self._suspended = False
+        # The board has just rebooted into fresh firmware; let it enumerate
+        # before the first reconnect attempt.
+        self._next_attempt = time.monotonic() + RECONNECT_INTERVAL_S
+
     def poll(self) -> None:
         """Reconnects when needed and collects status lines from the firmware."""
-        if self.dry_run:
+        if self.dry_run or self._suspended:
             return
 
         if self._serial is None:
@@ -66,6 +84,8 @@ class PicoLink:
                 self.status_lines.append(text)
 
     def send(self, seq: int, frames: Sequence[Sequence[int]]) -> bool:
+        if self._suspended:
+            return False
         payload = build_channels(seq, frames)
         if self.dry_run:
             self.frames_sent += 1

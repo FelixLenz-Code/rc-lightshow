@@ -251,15 +251,21 @@ def flash(job: Job, uf2: Path, auto_reset_device: str | None = None,
     # disappear under us while the file is being closed. That is normal. A
     # failure *before* the last byte is out is not -- a full or read-only mount
     # used to be reported as a successful flash.
-    written = 0
+    #
+    # `durable` may only be set once fsync() has returned: write() on a buffered
+    # file hands the data to the buffer, and a full or read-only mount reports
+    # ENOSPC/EROFS at the flush, not at the write. Setting it any earlier turns
+    # exactly that failure into a harmless-looking note -- and a half-written
+    # image into an aircraft.
+    durable = False
     try:
         with open(target, "wb") as handle:
             handle.write(image)
-            written = len(image)
             handle.flush()
             os.fsync(handle.fileno())
+            durable = True
     except OSError as exc:
-        if written < len(image):
+        if not durable:
             job.finish(False, f"Schreiben nach {drives[0]} fehlgeschlagen: {exc}")
             return
         job.log(f"Hinweis beim Abschließen: {exc}")
