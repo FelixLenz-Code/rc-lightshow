@@ -40,6 +40,13 @@ class Session:
     def _failsafe_frame(self) -> list[list[int]]:
         values = [[port.min_us] * port.nchan for port in self.show.ports]
         for model in self.show.models:
+            if model.uses_bus:
+                # Eight independently "safe" channels are not a valid code word.
+                # What belongs here is the one frame that says off, everywhere.
+                encoder = self.mapper.bus_encoders.get(model.name)
+                if encoder is not None:
+                    encoder.write_failsafe(values[model.tx_port])
+                continue
             for offset, channel in enumerate(model.channels):
                 values[model.tx_port][model.tx_offset + offset] = channel.failsafe
         return values

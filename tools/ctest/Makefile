@@ -10,7 +10,7 @@ PLANE   := ../../firmware/plane/src
 BUILD   := build
 
 BINARIES := $(BUILD)/frame_decoder $(BUILD)/rc_decoder $(BUILD)/ppm_dump \
-            $(BUILD)/relay_sim $(BUILD)/effect_dump
+            $(BUILD)/relay_sim $(BUILD)/effect_dump $(BUILD)/bus_decoder
 
 all: $(BINARIES)
 
@@ -31,6 +31,9 @@ $(BUILD)/relay_sim: relay_sim.c | $(BUILD)
 
 $(BUILD)/effect_dump: effect_dump.c $(PLANE)/effects.c | $(BUILD)
 	$(CC) $(CFLAGS) -I$(PLANE) -o $@ $^ -lm
+
+$(BUILD)/bus_decoder: bus_decoder.c $(PLANE)/bus.c | $(BUILD)
+	$(CC) $(CFLAGS) -I$(PLANE) -o $@ $^
 
 clean:
 	rm -rf $(BUILD)

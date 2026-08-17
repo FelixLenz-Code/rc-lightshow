@@ -27,6 +27,68 @@
 
 static rgb_t s_pixels[MAX_ZONE_PIXELS];
 
+#if BUS_MODE
+#include "bus.h"
+
+// In bus mode a frame refreshes one zone, so the others have to be remembered
+// between frames -- there is no channel holding them any more.
+static bus_zone_t s_zones[BUS_ZONES];
+static uint8_t    s_bus_relays;
+// Nothing may light up before a frame has actually been understood.
+static bool       s_all_off = true;
+static uint32_t   s_last_bus_frame;
+// Only read by the measure build's console line, but kept unconditionally so
+// the two builds decode through exactly the same code.
+static uint8_t    s_last_zone;
+static int8_t     s_last_fix = -1;
+static uint32_t   s_bus_bad;
+static bool       s_last_ok;
+
+static void bus_all_off(void) {
+    for (uint8_t zone = 0; zone < BUS_ZONES; zone++) {
+        s_zones[zone] = (bus_zone_t){0};
+    }
+    s_bus_relays = 0;
+    s_all_off = true;
+}
+
+// Reads the eight bus channels of a newly arrived RC frame. A frame that does
+// not decode changes nothing: holding the last good state is always better than
+// acting on a guess.
+static void bus_poll(const rc_state_t *rc) {
+    if (!rc->valid || rc->source != RC_SOURCE_SBUS) return;
+    if (rc->frames == s_last_bus_frame) return;
+    s_last_bus_frame = rc->frames;
+
+    uint8_t symbols[BUS_SYMBOLS];
+    for (uint8_t i = 0; i < BUS_SYMBOLS; i++) {
+        symbols[i] = bus_us_to_symbol(
+            rc_channel_us(rc, (uint8_t)(BUS_FIRST_CHANNEL + i)),
+            RC_MIN_US, RC_MAX_US);
+    }
+
+    bus_frame_t frame;
+    s_last_ok = bus_decode(symbols, BUS_ZONES, BUS_RELAY_COUNT, &frame);
+    if (!s_last_ok) {
+        s_bus_bad++;
+        return;
+    }
+    s_last_zone = frame.zone;
+    s_last_fix = frame.corrected;
+
+    // One frame addresses one zone, so a static failsafe frame could never
+    // darken the rest. This command means all of them, at once -- and it takes
+    // three fields to say, so a stray frame cannot blank the model by accident.
+    if (bus_is_all_off(&frame.state)) {
+        bus_all_off();
+        return;
+    }
+    s_zones[frame.zone] = frame.state;
+    s_bus_relays = frame.relays;
+    s_all_off = false;
+}
+#endif
+
 int main(void) {
     stdio_init_all();
 
@@ -58,13 +120,35 @@ int main(void) {
 
         if (!rc.valid) {
             outputs_relays_off();
+#if BUS_MODE
+            // The link is gone; the remembered zone states are stale and must
+            // not come back to life when it returns.
+            bus_all_off();
+#endif
         }
+
+#if BUS_MODE
+        bus_poll(&rc);
+        outputs_set_bus_relays(s_bus_relays, s_all_off);
+#endif
 
         for (uint8_t zone = 0; zone < outputs_zone_count(); zone++) {
             uint16_t count = outputs_zone_pixels(zone);
             show_state_t show = {0};
 
             if (rc.valid) {
+#if BUS_MODE
+                // Nothing is decoded here: the zone's state came in on some
+                // earlier frame and has been held ever since.
+                show.cue = s_zones[zone].cue;
+                show.hue = s_zones[zone].hue;
+                show.brightness = s_zones[zone].brightness;
+                show.param = s_zones[zone].param;
+                if (s_all_off) {
+                    show.cue = 0;
+                    show.brightness = 0;
+                }
+#else
                 // With SBUS the zone sits at its configured place inside the
                 // 16 channel frame. With PWM the four wires are the four
                 // channels, so every zone reads the same block.
@@ -75,6 +159,7 @@ int main(void) {
                 show.hue = decode_u8(rc_channel_us(&rc, base + 1));
                 show.brightness = decode_u8(rc_channel_us(&rc, base + 2));
                 show.param = decode_u8(rc_channel_us(&rc, base + 3));
+#endif
                 effects_render(&show, now_ms, s_pixels, count);
                 outputs_update_relays(zone, &show, s_pixels, &rc, now_ms);
             } else {
@@ -103,6 +188,26 @@ int main(void) {
                    base + 2, rc_channel_us(&rc, base + 2),
                    base + 3, rc_channel_us(&rc, base + 3),
                    decode_step(rc_channel_us(&rc, base), CUE_STEPS));
+#if BUS_MODE
+            // The raw channels above are code symbols and mean nothing on
+            // their own. This is what the frame actually decoded to -- which
+            // zone it addressed, what that zone now holds, and whether the
+            // correction had to step in. `bad` counts frames that could not be
+            // decoded at all; on a healthy link it stays at zero.
+            printf("BUS zone=%u cue=%u hue=%u bri=%u param=%u relays=0x%02x "
+                   "fix=%d bad=%lu off=%d\n",
+                   s_last_zone, s_zones[s_last_zone].cue, s_zones[s_last_zone].hue,
+                   s_zones[s_last_zone].brightness, s_zones[s_last_zone].param,
+                   s_bus_relays, s_last_fix, (unsigned long)s_bus_bad,
+                   s_all_off ? 1 : 0);
+            // All eight coded channels raw, so a rejected frame can be taken
+            // apart on the bench: which symbol moved, and by how much.
+            printf("RAW ok=%d", s_last_ok ? 1 : 0);
+            for (uint8_t i = 0; i < BUS_SYMBOLS; i++) {
+                printf(" %u", rc_channel_us(&rc, (uint8_t)(BUS_FIRST_CHANNEL + i)));
+            }
+            printf("\n");
+#endif
         }
 #else
         if (now_ms - last_log_ms >= 1000) {

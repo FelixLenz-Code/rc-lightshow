@@ -7,21 +7,30 @@ MIDI mapper, so the sending loop does not care where the values came from.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
-from .config import CHANNELS_PER_ZONE, ChannelCfg, PortCfg, ShowCfg, level_us, step_us
+from . import bus as bus_mode
+from .config import (CHANNELS_PER_ZONE, ChannelCfg, ModelCfg, PortCfg, ShowCfg,
+                     level_us, step_us)
 from .project import LightBlock, LightTrack, Project
 
 
 @dataclass
 class Binding:
-    """Where one zone's four channels live in the transmitter frame."""
+    """Where one zone's four channels live in the transmitter frame.
+
+    In bus mode `indices` is empty: a zone owns no channels of its own, and the
+    model's encoder decides what the eight wire channels carry.
+    """
 
     track: LightTrack
     port_id: int
     port: PortCfg
     indices: list[int]                 # channel index inside the port frame
     channels: list[ChannelCfg]
+    model: ModelCfg | None = None
+    zone: int = 0
 
 
 def fade_factor(block: LightBlock, t: float) -> float:
@@ -55,6 +64,7 @@ class Timeline:
         self.project = project
         self.bindings: list[Binding] = []
         self.warnings: list[str] = []
+        self.encoders: dict[str, bus_mode.Encoder] = {}
         self._bind()
 
     def _bind(self) -> None:
@@ -78,10 +88,27 @@ class Timeline:
                 track=track,
                 port_id=model.tx_port,
                 port=self.show.port_by_id(model.tx_port),
-                indices=[model.tx_offset + first + offset
-                         for offset in range(CHANNELS_PER_ZONE)],
+                indices=([] if model.uses_bus else
+                         [model.tx_offset + first + offset
+                          for offset in range(CHANNELS_PER_ZONE)]),
                 channels=model.channels[first:first + CHANNELS_PER_ZONE],
+                model=model,
+                zone=track.zone,
             ))
+
+        # One encoder per bus model, shared by every track that drives it.
+        for model in self.show.models:
+            if not model.uses_bus:
+                continue
+            port = self.show.port_by_id(model.tx_port)
+            self.encoders[model.name] = bus_mode.Encoder(
+                zones=model.zone_count,
+                relays_count=model.bus.relay_count,
+                tx_offset=model.tx_offset,
+                min_us=port.min_us,
+                max_us=port.max_us,
+                frame_us=port.frame_us,
+            )
 
     # ------------------------------------------------------------- evaluate
 
@@ -107,8 +134,16 @@ class Timeline:
 
         # Channels nobody drives keep their configured failsafe.
         for model in self.show.models:
+            if model.uses_bus:
+                continue              # its channels are code symbols, not values
             for offset, channel in enumerate(model.channels):
                 values[model.tx_port][model.tx_offset + offset] = channel.failsafe
+
+        # A bus zone nobody scheduled has to be darkened explicitly: the encoder
+        # keeps its last state, and there is no failsafe channel to fall back on.
+        for encoder in self.encoders.values():
+            for zone in range(encoder.zones):
+                encoder.set_zone(zone, bus_mode.ZoneState())
 
         for binding in self.bindings:
             block = active_block(binding.track, t)
@@ -118,10 +153,26 @@ class Timeline:
 
             level = round(block.brightness * fade_factor(block, t))
             settings = (block.cue, block.hue, level, block.param)
+
+            encoder = (self.encoders.get(binding.model.name)
+                       if binding.model is not None else None)
+            if encoder is not None:
+                encoder.set_zone_us(binding.zone, *[
+                    self._to_us(channel, binding.port, value)
+                    for channel, value in zip(binding.channels, settings)
+                ])
+                continue
+
             for index, channel, value in zip(binding.indices, binding.channels,
                                              settings):
                 values[binding.port_id][index] = self._to_us(
                     channel, binding.port, value)
+
+        now = time.monotonic()
+        for model in self.show.models:
+            encoder = self.encoders.get(model.name)
+            if encoder is not None:
+                encoder.write(values[model.tx_port], now)
 
         return values
 

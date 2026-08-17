@@ -28,6 +28,11 @@ Stufen 11–31 sind bewusst als Dauerlicht definiert statt als „nichts", damit
 Tippfehler in der Automation nicht zu einem dunklen Modell führt. Sie sind der
 Platz für eigene Effekte in `firmware/plane/src/effects.c`.
 
+> **Stufe 31 im Bus-Modus nicht belegen.** Dort bedeutet sie auf der Leitung
+> „alles aus, alle Zonen" — so wirkt ein einzelner Failsafe-Rahmen auf das ganze
+> Modell und nicht nur auf die eine Zone, die er adressiert. Siehe
+> [Bus-Modus](bus-modus.md). Ohne Bus-Modus ist 31 eine Stufe wie jede andere.
+
 ## Die anderen Kanäle
 
 | Kanal        | Wirkung                                                        |

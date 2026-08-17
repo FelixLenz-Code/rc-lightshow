@@ -17,8 +17,9 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
+from . import bus as bus_mode
 from . import config as config_module
 from . import flasher
 from . import planegen
@@ -268,6 +269,71 @@ class Server:
                 return model
         return None
 
+    def bus_options(self, frame_us: int | None = None) -> dict:
+        """Which zone/relay pairs each transmitter can carry, and how fast.
+
+        The arithmetic lives in `bus`, not in the browser: the frame the
+        aircraft decodes and the table the interface draws have to come from
+        one place, or they will disagree the moment one of them is edited.
+        `frame_us` lets the wizard ask about a transmitter it has not saved
+        yet, for the same reason -- so it does not have to know the rules.
+        """
+        limit = self.show.bus_latency_limit_ms
+
+        def table(length_us: int) -> list[dict]:
+            return [
+                {"zones": c.zones, "relays": c.relays,
+                 "latency_ms": round(c.latency_ms, 1),
+                 "spare_bits": c.spare_bits,
+                 "within_budget": c.within_budget}
+                for c in bus_mode.combinations(length_us, limit_ms=limit)
+            ]
+
+        ports = {}
+        for port in self.show.ports:
+            ports[str(port.id)] = {
+                "frame_us": port.frame_us,
+                "nchan": port.nchan,
+                "combinations": table(port.frame_us),
+            }
+        if frame_us:
+            ports["asked"] = {
+                "frame_us": frame_us,
+                "nchan": None,
+                "combinations": table(frame_us),
+            }
+
+        models = {}
+        for model in self.show.models:
+            port = self.show.port_by_id(model.tx_port)
+            relays = model.bus.relay_count if model.uses_bus else 0
+            models[model.name] = {
+                "enabled": model.uses_bus,
+                "zones": model.zone_count,
+                "relays": relays,
+                "latency_ms": round(
+                    bus_mode.latency_ms(model.zone_count, port.frame_us), 1),
+                "fits": bus_mode.fits(model.zone_count, relays),
+                "wire_channels": model.wire_channels,
+            }
+
+        # What a PPM frame has to be at least, per channel count, so the wizard
+        # can propose one without knowing the rule.
+        ppm_minimum = {str(n): config_module.ppm_frame_minimum(n)
+                       for n in (4, 6, 8, 10, 12, 14, 16)}
+
+        return {
+            "limit_ms": limit,
+            "ppm_frame_minimum": ppm_minimum,
+            "channels_per_zone": config_module.CHANNELS_PER_ZONE,
+            "payload_bits": bus_mode.PAYLOAD_BITS,
+            "zone_state_bits": bus_mode.ZONE_STATE_BITS,
+            "max_zones": bus_mode.MAX_ZONES,
+            "symbols": bus_mode.SYMBOLS,
+            "ports": ports,
+            "models": models,
+        }
+
     def plane_payload(self, name: str) -> dict:
         model = self.model_by_name(name)
         if model is None:
@@ -433,6 +499,13 @@ def _make_handler(server: Server):
                             "path": str(server.config_path)})
             elif path.startswith("/api/plane/"):
                 self._json(server.plane_payload(unquote(path.split("/api/plane/")[1])))
+            elif path == "/api/bus":
+                asked = parse_qs(urlparse(self.path).query).get("frame_us")
+                try:
+                    frame_us = int(asked[0]) if asked else None
+                except ValueError:
+                    frame_us = None
+                self._json(server.bus_options(frame_us))
             elif path == "/api/toolchain":
                 payload = flasher.toolchain_status()
                 payload["bootsel"] = flasher.find_bootsel()

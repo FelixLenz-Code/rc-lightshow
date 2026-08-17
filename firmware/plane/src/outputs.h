@@ -78,6 +78,11 @@ void outputs_update_relays(uint8_t zone, const show_state_t *show,
 // Drops every relay, whatever the minimum times say. Used on RC loss.
 void outputs_relays_off(void);
 
+// What the last bus frame said: a bit per directly switched relay, and whether
+// everything has to stay dark regardless. Only bus builds call this; in a
+// classic build the values simply stay zero and no relay source reads them.
+void outputs_set_bus_relays(uint8_t bitmap, bool all_off);
+
 uint8_t outputs_zone_count(void);
 
 // First of a zone's four RC channels, 1 based.

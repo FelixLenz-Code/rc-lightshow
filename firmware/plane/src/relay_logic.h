@@ -24,6 +24,10 @@ typedef enum {
     RELAY_SRC_CUE,
     // On while RC channel `arg` (1 based, absolute) is above `threshold`.
     RELAY_SRC_CHANNEL,
+    // Switched straight over the bus: `arg` is the slot in the frame's relay
+    // field. The only source that does not hang off a zone's state, which is
+    // exactly why it costs payload bits.
+    RELAY_SRC_BUS,
 } relay_source_t;
 
 typedef struct {
@@ -32,6 +36,8 @@ typedef struct {
     uint8_t pixel_level;    // brightest component of the referenced pixel
     uint8_t channel_level;  // referenced RC channel, decoded to 0..255
     bool    pixel_valid;    // false when the pixel index is out of range
+    bool    bus_on;         // this relay's own bit in the last bus frame
+    bool    all_off;        // failsafe, blackout or a frame carrying CUE_ALL_OFF
 } relay_inputs_t;
 
 typedef struct {
@@ -43,6 +49,16 @@ typedef struct {
 // Whether the relay should be on, ignoring the minimum times.
 static inline bool relay_wants(relay_source_t source, uint16_t arg,
                                uint8_t threshold, const relay_inputs_t *in) {
+    // Nothing survives this: failsafe, blackout, or a frame that says so.
+    if (in->all_off) return false;
+
+    // A bus relay is switched directly and deliberately does not hang off a
+    // zone's cue -- being independent of the zones is what it is for.
+    if (source == RELAY_SRC_BUS) {
+        (void)arg;
+        return in->bus_on;
+    }
+
     // Cue 0 means "everything off" -- that has to include the relays.
     if (in->cue == 0) return false;
 
@@ -55,6 +71,8 @@ static inline bool relay_wants(relay_source_t source, uint16_t arg,
         return in->cue >= arg;
     case RELAY_SRC_CHANNEL:
         return in->channel_level > threshold;
+    case RELAY_SRC_BUS:
+        break;                          // handled above
     }
     return false;
 }

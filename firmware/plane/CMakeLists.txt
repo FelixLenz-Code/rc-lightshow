@@ -20,6 +20,7 @@ add_executable(lightshow_plane
     src/rc_input.c
     src/effects.c
     src/outputs.c
+    src/bus.c
 )
 
 pico_generate_pio_header(lightshow_plane ${CMAKE_CURRENT_LIST_DIR}/src/ws2812.pio)

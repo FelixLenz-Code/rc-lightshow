@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 
-from .config import ChannelCfg, ModelCfg, PortCfg, ShowCfg, step_us
+from . import bus as bus_mode
+from .config import CHANNELS_PER_ZONE, ChannelCfg, ModelCfg, PortCfg, ShowCfg, step_us
 
 
 @dataclass
@@ -55,6 +57,15 @@ class Mapper:
         self._by_cc: dict[tuple[int, int], tuple[Slot, bool]] = {}
         # midi_channel -> slots, for panic handling
         self._by_midi: dict[int, list[Slot]] = {}
+        # Bus models do not own channel positions, so they get an encoder that
+        # turns their zone states into the eight values that go on the wire.
+        self.bus_encoders: dict[str, bus_mode.Encoder] = {}
+        # model name -> its slots in channel order, so a frame does not have to
+        # filter the whole slot list once per zone.
+        self._slots_by_model: dict[str, list[Slot]] = {}
+        # (midi_channel, cc) -> (encoder, relay index)
+        self._bus_relay_by_cc: dict[tuple[int, int], tuple[bus_mode.Encoder, int]] = {}
+        self._bus_relays_by_midi: dict[int, list[tuple[bus_mode.Encoder, int]]] = {}
 
         for model in show.models:
             port = show.port_by_id(model.tx_port)
@@ -70,6 +81,25 @@ class Mapper:
                 if channel.cc_lsb is not None:
                     self._by_cc[(model.midi_channel, channel.cc_lsb)] = (slot, True)
                 self._by_midi.setdefault(model.midi_channel, []).append(slot)
+                self._slots_by_model.setdefault(model.name, []).append(slot)
+
+            if not model.uses_bus:
+                continue
+            encoder = bus_mode.Encoder(
+                zones=model.zone_count,
+                relays_count=model.bus.relay_count,
+                tx_offset=model.tx_offset,
+                min_us=port.min_us,
+                max_us=port.max_us,
+                frame_us=port.frame_us,
+            )
+            self.bus_encoders[model.name] = encoder
+            for index, relay in enumerate(model.bus.relays):
+                encoder.set_relay(index, relay.failsafe)
+                key = (model.midi_channel, relay.cc)
+                self._bus_relay_by_cc[key] = (encoder, index)
+                self._bus_relays_by_midi.setdefault(
+                    model.midi_channel, []).append((encoder, index))
 
     # ------------------------------------------------------------------ input
 
@@ -88,6 +118,16 @@ class Mapper:
                 for slot in self._by_midi.get(midi_channel, []):
                     slot.raw = None
                     slot.msb = slot.lsb = 0
+                for encoder, index in self._bus_relays_by_midi.get(midi_channel, []):
+                    encoder.set_relay(index, False)
+                return
+
+            switch = self._bus_relay_by_cc.get((midi_channel, cc))
+            if switch is not None:
+                # A relay is on or off, so it follows the same threshold the
+                # blackout control uses: 64 and above means on.
+                encoder, index = switch
+                encoder.set_relay(index, value >= 64)
                 return
 
             entry = self._by_cc.get((midi_channel, cc))
@@ -123,15 +163,40 @@ class Mapper:
         """Channel values in microseconds, one list per transmitter port."""
         with self._lock:
             blackout = self.blackout
+            now = time.monotonic()
             values = [
                 [port.min_us] * port.nchan for port in self.show.ports
             ]
             for slot in self.slots:
+                if slot.model.uses_bus:
+                    continue          # the encoder decides what goes on the wire
                 port_id = slot.model.tx_port
                 values[port_id][slot.port_index] = (
                     slot.channel.failsafe if blackout else slot.microseconds()
                 )
+
+            for model in self.show.models:
+                encoder = self.bus_encoders.get(model.name)
+                if encoder is None:
+                    continue
+                if blackout:
+                    # One frame carrying CUE_ALL_OFF darkens every zone at once,
+                    # rather than taking a full rotation to get round to them.
+                    encoder.write_failsafe(values[model.tx_port])
+                    continue
+                self._load_zones(model, encoder)
+                encoder.write(values[model.tx_port], now)
             return values
+
+    def _load_zones(self, model: ModelCfg, encoder: bus_mode.Encoder) -> None:
+        """Copies the model's MIDI state into its encoder, zone by zone."""
+        slots = self._slots_by_model.get(model.name, [])
+        for zone in range(model.zone_count):
+            first = zone * CHANNELS_PER_ZONE
+            group = slots[first:first + CHANNELS_PER_ZONE]
+            if len(group) < CHANNELS_PER_ZONE:
+                continue
+            encoder.set_zone_us(zone, *(slot.microseconds() for slot in group))
 
     def snapshot(self, sent: list[list[int]] | None = None
                  ) -> tuple[bool, int, list[tuple[Slot, int]]]:
@@ -145,7 +210,10 @@ class Mapper:
             blackout = self.blackout
             values = []
             for slot in self.slots:
-                if sent is not None and slot.model.tx_port < len(sent):
+                # A bus model's channels are code symbols, not its values --
+                # reading them back would show the monitor nonsense.
+                if sent is not None and not slot.model.uses_bus \
+                        and slot.model.tx_port < len(sent):
                     port_values = sent[slot.model.tx_port]
                     if slot.port_index < len(port_values):
                         values.append((slot, port_values[slot.port_index]))

@@ -125,6 +125,17 @@ void outputs_show(uint8_t zone, const rgb_t *pixels) {
 #endif
 }
 
+// What the last bus frame said about the directly switched relays. Kept here
+// rather than passed through outputs_update_relays so the classic build and
+// the bus build share one signature.
+static uint8_t s_bus_relays;
+static bool    s_bus_all_off;
+
+void outputs_set_bus_relays(uint8_t bitmap, bool all_off) {
+    s_bus_relays = bitmap;
+    s_bus_all_off = all_off;
+}
+
 #if RELAY_COUNT > 0
 // Collects everything relay_wants() needs; the decision itself lives in
 // relay_logic.h so it can be tested without hardware.
@@ -137,6 +148,8 @@ static relay_inputs_t gather(const relay_cfg_t *relay, const show_state_t *show,
         .pixel_level = 0,
         .channel_level = 0,
         .pixel_valid = false,
+        .bus_on = (s_bus_relays >> (relay->arg & 7u)) & 1u,
+        .all_off = s_bus_all_off,
     };
 
     if (relay->arg < pixel_count) {

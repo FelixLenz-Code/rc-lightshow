@@ -77,11 +77,22 @@ def describe(show: config_module.ShowCfg) -> str:
             f"{port.nchan} ch, frame {port.frame_us} us, {port.min_us}..{port.max_us} us"
         )
     for model in show.models:
-        roles = ", ".join(channel.role for channel in model.channels)
-        lines.append(
-            f"  model '{model.name}': MIDI ch {model.midi_channel} -> TX{model.tx_port} "
-            f"ch{model.tx_offset + 1}..{model.tx_offset + len(model.channels)} ({roles})"
-        )
+        first = model.tx_offset + 1
+        last = model.tx_offset + model.wire_channels
+        if model.uses_bus:
+            # The channel list is zone values, not wire channels -- printing its
+            # length as a channel range would name channels the port has not got.
+            lines.append(
+                f"  model '{model.name}': MIDI ch {model.midi_channel} -> "
+                f"TX{model.tx_port} ch{first}..{last}, Bus mit "
+                f"{model.zone_count} Zone(n) und {model.bus.relay_count} Relais"
+            )
+        else:
+            roles = ", ".join(channel.role for channel in model.channels)
+            lines.append(
+                f"  model '{model.name}': MIDI ch {model.midi_channel} -> "
+                f"TX{model.tx_port} ch{first}..{last} ({roles})"
+            )
     return "\n".join(lines)
 
 

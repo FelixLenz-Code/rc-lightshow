@@ -44,11 +44,20 @@ def defines(header: str) -> dict[str, str]:
 # ----------------------------------------------------------------- generator
 
 
-def test_a_model_reads_the_first_four_channels_of_its_own_transmitter(show):
-    """The normal case: one model, one receiver, one transmitter, channels 1..4."""
+def test_a_model_reads_the_channel_block_its_offset_names(show):
+    """Where a model reads follows tx_offset, and nothing else.
+
+    'falke' sits at the bottom of its transmitter, 'eule' starts at channel 9
+    so the sticks keep 1..8 -- both have to come out of the generator right.
+    """
     for name in ("eule", "falke"):
-        header = planegen.generate(show, model(show, name))
-        assert "{1}," in header and "Kanaele 1..4" in header
+        entry = model(show, name)
+        if entry.uses_bus:
+            continue          # no zone owns channels there; see the bus tests
+        header = planegen.generate(show, entry)
+        first = entry.tx_offset + 1
+        assert f"{{{first}}}," in header
+        assert f"Kanaele {first}..{first + 3}" in header
 
 
 def test_zone_base_channel_follows_the_transmitter_offset(show):
@@ -66,7 +75,7 @@ def test_zone_base_channel_follows_the_transmitter_offset(show):
 
 def test_a_second_zone_takes_the_next_four_channels(show):
     """Zones are what tx_offset normally has to make room for."""
-    two = model(show, "eule")
+    two = model(show, "falke")                  # sits at offset 0, one zone
     original = list(two.channels)
     two.channels = original + original          # eight channels, two zones
     header = planegen.generate(show, two)
@@ -83,10 +92,13 @@ def test_strip_table_matches_the_configuration(show):
 
 
 def test_relay_sources_use_the_firmware_macros(show):
-    header = planegen.generate(show, model(show, "eule"))
-    assert "RELAY_SRC_PIXEL" in header
-    assert "RELAY_SRC_CUE" in header
-    assert defines(header)["RELAY_COUNT"] == "2"
+    """Every configured source has to reach the header as its macro."""
+    for name in ("eule", "falke"):
+        entry = model(show, name)
+        header = planegen.generate(show, entry)
+        assert defines(header)["RELAY_COUNT"] == str(len(entry.plane.relays))
+        for relay in entry.plane.relays:
+            assert planegen.SOURCE_MACRO[relay.source] in header
 
 
 def test_cue_steps_follow_the_quantize_setting(show):
@@ -217,3 +229,112 @@ def test_generated_header_compiles_against_the_firmware(show, tmp_path):
         capture_output=True,
     )
     assert result.returncode == 0, result.stderr.decode()
+
+
+# ------------------------------------------------------------------ bus mode
+
+
+def bus_model(show, zones=4, relays=2):
+    """The shipped 'eule' turned into a bus model with `zones` zones."""
+    from lightshow import config as config_module
+
+    entry = model(show, "eule")
+    base = list(entry.channels[:4])
+    entry.channels = []
+    for zone in range(zones):
+        for offset, channel in enumerate(base):
+            entry.channels.append(config_module.ChannelCfg(
+                role=channel.role, cc=20 + zone * 4 + offset,
+                quantize=channel.quantize, failsafe=channel.failsafe))
+    entry.bus = config_module.BusCfg(
+        enabled=True,
+        relays=[config_module.BusRelayCfg(f"r{i}", 100 + i) for i in range(relays)])
+    return entry
+
+
+def test_a_bus_model_declares_the_frame_the_firmware_has_to_decode(show):
+    entry = model(show, "eule")
+    keep = (list(entry.channels), entry.bus)
+    try:
+        header = planegen.generate(show, bus_model(show, zones=6, relays=1))
+        table = defines(header)
+        assert table["BUS_MODE"] == "1"
+        assert table["BUS_ZONES"] == "6"
+        assert table["BUS_RELAY_COUNT"] == "1"
+        assert table["ZONE_COUNT"] == "6"
+        # Where on the transmitter the eight coded channels start.
+        assert table["BUS_FIRST_CHANNEL"] == str(entry.tx_offset + 1)
+        # The all-off command belongs to bus.h, not to a model's header.
+        assert "BUS_CUE_ALL_OFF" not in table
+    finally:
+        entry.channels, entry.bus = keep
+
+
+def test_a_classic_model_says_so_rather_than_leaving_it_open(show):
+    """`#if BUS_MODE` on a missing macro is silently false -- but a header that
+    states it can be read by a human without knowing that rule."""
+    assert defines(planegen.generate(show, model(show, "falke")))["BUS_MODE"] == "0"
+
+
+def test_the_bus_relay_slots_are_named_in_the_header(show):
+    """Which bit means which relay is otherwise invisible on the aircraft."""
+    entry = model(show, "eule")
+    keep = (list(entry.channels), entry.bus)
+    try:
+        header = planegen.generate(show, bus_model(show, zones=2, relays=2))
+        assert "0: r0" in header and "1: r1" in header
+    finally:
+        entry.channels, entry.bus = keep
+
+
+def test_a_bus_header_compiles_and_matches_the_decoder(show, tmp_path):
+    """The generated bus macros have to line up with bus.h, or the aircraft
+    would decode a frame the ground station never sends."""
+    if shutil.which("cc") is None:
+        pytest.skip("cc not available")
+
+    entry = model(show, "eule")
+    keep = (list(entry.channels), entry.bus)
+    try:
+        header = tmp_path / "model.h"
+        header.write_text(planegen.generate(show, bus_model(show, zones=6, relays=2)))
+
+        src = REPO / "firmware" / "plane" / "src"
+        probe = tmp_path / "probe.c"
+        probe.write_text(
+            '#include "config.h"\n'
+            '#include "bus.h"\n'
+            "static const zone_cfg_t zones[] = ZONES;\n"
+            # The header's idea of the frame has to be the decoder's idea of it.
+            "_Static_assert(BUS_ZONES <= BUS_MAX_ZONES, \"zu viele Zonen\");\n"
+            "_Static_assert(BUS_RELAY_COUNT <= BUS_MAX_RELAYS, \"zu viele Relais\");\n"
+            "_Static_assert(BUS_ZONES == ZONE_COUNT, \"Zonenzahl uneinig\");\n"
+            "int main(void) {\n"
+            "  return (int)(sizeof(zones) + BUS_MODE + BUS_FIRST_CHANNEL\n"
+            "               + BUS_CUE_ALL_OFF + bus_address_bits(BUS_ZONES));\n"
+            "}\n"
+        )
+        result = subprocess.run(
+            ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+             f"-I{src}", f'-DPLANE_CONFIG_HEADER="{header}"', str(probe)],
+            capture_output=True,
+        )
+        assert result.returncode == 0, result.stderr.decode()
+    finally:
+        entry.channels, entry.bus = keep
+
+
+def test_the_generated_budget_is_one_the_frame_can_carry(show):
+    """planegen must not emit a combination the encoder would refuse."""
+    from lightshow import bus as bus_mode
+
+    entry = model(show, "eule")
+    keep = (list(entry.channels), entry.bus)
+    try:
+        for zones, relays in ((1, 4), (4, 2), (6, 1), (8, 1)):
+            built = bus_model(show, zones=zones, relays=relays)
+            table = defines(planegen.generate(show, built))
+            assert bus_mode.fits(int(table["BUS_ZONES"]),
+                                 int(table["BUS_RELAY_COUNT"]))
+    finally:
+        entry.channels, entry.bus = keep

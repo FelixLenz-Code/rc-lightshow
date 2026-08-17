@@ -42,17 +42,32 @@ def test_every_model_in_the_example_has_its_own_transmitter():
     show = config_module.load(SHIPPED_CONFIG)
     ports = [model.tx_port for model in show.models]
     assert sorted(ports) == sorted(set(ports)), "zwei Modelle an einer Buchse"
-    assert all(model.tx_offset == 0 for model in show.models)
+    # Each model's block has to stay inside its own port. Sitting at channel 1
+    # is not required -- 'eule' deliberately starts at 9, above the sticks.
+    for model in show.models:
+        port = show.port_by_id(model.tx_port)
+        assert model.tx_offset + model.wire_channels <= port.nchan
 
 
 def test_wire_ports_fill_failsafe_per_channel():
     show = config_module.load(SHIPPED_CONFIG)
-    for index, wire in enumerate(show.wire_ports()):
+    wires = show.wire_ports()
+    for wire in wires:
         assert len(wire.failsafe) == wire.nchan
-        # Each model sits at the start of its own port.
-        assert wire.failsafe[:4] == [1000, 1500, 1000, 1500]
-        # Nothing drives the rest, so they hold the port minimum.
-        assert set(wire.failsafe[4:]) == {1000}, f"Port {index}"
+
+    for model in show.models:
+        wire = wires[model.tx_port]
+        first = model.tx_offset
+        if model.uses_bus:
+            # A bus model's block is one code word, checked in test_bus.py --
+            # per channel failsafes mean nothing there.
+            continue
+        last = first + len(model.channels)
+        # A model's own block carries the failsafe its channels declare ...
+        assert wire.failsafe[first:last] == [c.failsafe for c in model.channels]
+        # ... and everything nothing drives holds the port minimum.
+        untouched = wire.failsafe[:first] + wire.failsafe[last:]
+        assert set(untouched) <= {wire.min_us}, model.name
 
 
 def test_ppm_frame_must_hold_every_channel(tmp_path):
@@ -250,3 +265,114 @@ def test_strips_laid_end_to_end_do_make_a_longer_chain(tmp_path):
 """
     show = config_module.load(write(tmp_path, text))
     assert show.models[0].plane.relays[0].arg == 45
+
+
+# ------------------------------------------------------------------ bus mode
+
+# Built by substitution rather than str.format -- the template is YAML and is
+# full of braces of its own.
+BUS_BASE = """
+serial_port: /dev/ttyACM0
+tx_ports:
+  - {id: 0, name: tx, format: ppm, nchan: 16, frame_us: 35500}
+models:
+  - name: eule
+    midi_channel: 1
+    tx_port: 0
+    tx_offset: 8
+    bus:
+      enabled: true
+      relays:
+#RELAYS#
+    channels:
+#CHANNELS#
+    plane:
+      board: pico
+      strips:
+        - {name: rumpf, pin: 2, count: 30}
+"""
+
+
+def bus_text(zones: int, relays: int) -> str:
+    channels = ""
+    for zone in range(zones):
+        first = 20 + zone * 4
+        channels += (
+            f"      - {{role: cue, cc: {first}, quantize: 32, failsafe: 1000}}\n"
+            f"      - {{role: hue, cc: {first + 1}, failsafe: 1500}}\n"
+            f"      - {{role: brightness, cc: {first + 2}, failsafe: 1000}}\n"
+            f"      - {{role: param, cc: {first + 3}, failsafe: 1500}}\n")
+    relay_lines = "".join(
+        f"        - {{name: r{i}, cc: {100 + i}}}\n" for i in range(relays)
+    ) or "        []\n"
+    return (BUS_BASE.replace("#CHANNELS#\n", channels)
+                    .replace("#RELAYS#\n", relay_lines))
+
+
+def test_a_bus_model_occupies_eight_channels_whatever_its_zones(tmp_path):
+    """Six zones would be 24 channels laid out one per value -- on the bus they
+    are eight, which is the entire point of the mode."""
+    show = config_module.load(write(tmp_path, bus_text(zones=6, relays=0)))
+    model = show.models[0]
+    assert model.uses_bus
+    assert model.zone_count == 6
+    assert model.wire_channels == 8
+
+
+def test_too_many_relays_for_the_zones_is_refused_with_the_arithmetic(tmp_path):
+    """Five relays plus a two bit address plus the zone state is 31 bits."""
+    with pytest.raises(config_module.ConfigError, match="30"):
+        config_module.load(write(tmp_path, bus_text(zones=4, relays=5)))
+
+
+def test_the_bus_failsafe_is_a_code_word_not_eight_safe_channels(tmp_path):
+    """Eight individually sensible values are not a valid frame at all."""
+    from lightshow import bus as bus_mode
+
+    show = config_module.load(write(tmp_path, bus_text(zones=4, relays=2)))
+    model = show.models[0]
+    wire = show.wire_ports()[0]
+    block = wire.failsafe[model.tx_offset:model.tx_offset + bus_mode.SYMBOLS]
+    symbols = [bus_mode.us_to_symbol(us, 1000, 2000) for us in block]
+
+    decoded = bus_mode.decode(symbols)
+    assert decoded.ok and decoded.corrected is None
+    _, state, relays = bus_mode.unpack(decoded.data, zones=4, relays_count=2)
+    assert bus_mode.is_all_off(state)
+    assert state.brightness == 0
+    assert relays == [False, False]
+
+
+def test_a_relay_cannot_point_at_a_bus_slot_that_does_not_exist(tmp_path):
+    text = bus_text(zones=2, relays=1).replace(
+        "        - {name: rumpf, pin: 2, count: 30}",
+        "        - {name: rumpf, pin: 2, count: 30}\n"
+        "      relays:\n"
+        "        - {name: rauch, pin: 6, source: bus, arg: 3}")
+    with pytest.raises(config_module.ConfigError, match="bus relay 3"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_source_bus_without_bus_mode_is_refused(tmp_path):
+    text = PLANE + """
+      relays:
+        - {name: rauch, pin: 6, source: bus, arg: 0}
+"""
+    with pytest.raises(config_module.ConfigError, match="bus mode"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_a_bus_relay_may_not_share_a_control_change(tmp_path):
+    text = bus_text(zones=2, relays=1).replace("cc: 100", "cc: 21")
+    with pytest.raises(config_module.ConfigError, match="CC 21"):
+        config_module.load(write(tmp_path, text))
+
+
+def test_bus_survives_the_round_trip_through_yaml(tmp_path):
+    """The web UI writes the config back; a dropped bus section would silently
+    turn a six zone aircraft back into a two zone one."""
+    show = config_module.load(write(tmp_path, bus_text(zones=4, relays=2)))
+    again = config_module.load_dict(config_module.to_dict(show))
+    assert again.models[0].uses_bus
+    assert again.models[0].bus.relay_count == 2
+    assert [r.cc for r in again.models[0].bus.relays] == [100, 101]

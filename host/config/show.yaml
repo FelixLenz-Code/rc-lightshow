@@ -34,12 +34,15 @@ global_offset_ms: 0
 # damit seinen eigenen Sender. id 0 = GPIO2, id 1 = GPIO3, ... bis id 7 = GPIO9.
 
 tx_ports:
+  # 16 Kanaele, weil das Licht auf 9..16 liegt -- die Kanaele 1..8 bleiben dem
+  # Fliegen vorbehalten und werden hier nur mitgefuehrt, nie beschrieben.
+  # frame_us folgt aus der Pruefregel nchan * max_us + sync_us + 3000 = 35400.
   - id: 0
     name: eule_sender
     format: ppm
     polarity: normal
-    nchan: 8
-    frame_us: 22500
+    nchan: 16
+    frame_us: 35500
     sync_us: 400
     min_us: 1000
     max_us: 2000
@@ -108,12 +111,36 @@ models:
   - name: eule
     midi_channel: 1
     tx_port: 0
-    tx_offset: 0
+    tx_offset: 8        # Licht ab Kanal 9; 1..8 gehoeren den Knueppeln
+    # Bus-Modus: die acht Kanaele 9..16 tragen einen RS(8,6)-codierten Rahmen
+    # statt vier Werten je Zone. Vier Zonen kommen reihum dran, 142 ms je Zone
+    # bei 35,5 ms Rahmen. Siehe docs/bus-modus.md.
+    bus:
+      enabled: true
+      relays:
+        - {name: rauch,  cc: 100}
+        - {name: blitz,  cc: 101}
     channels:
+      # Zone 0
       - {role: cue,        cc: 20, quantize: 32, failsafe: 1000}
       - {role: hue,        cc: 21,               failsafe: 1500}
       - {role: brightness, cc: 22, cc_lsb: 54,   failsafe: 1000}
       - {role: param,      cc: 23,               failsafe: 1500}
+      # Zone 1
+      - {role: cue,        cc: 24, quantize: 32, failsafe: 1000}
+      - {role: hue,        cc: 25,               failsafe: 1500}
+      - {role: brightness, cc: 26, cc_lsb: 58,   failsafe: 1000}
+      - {role: param,      cc: 27,               failsafe: 1500}
+      # Zone 2
+      - {role: cue,        cc: 28, quantize: 32, failsafe: 1000}
+      - {role: hue,        cc: 29,               failsafe: 1500}
+      - {role: brightness, cc: 30, cc_lsb: 62,   failsafe: 1000}
+      - {role: param,      cc: 31,               failsafe: 1500}
+      # Zone 3
+      - {role: cue,        cc: 32, quantize: 32, failsafe: 1000}
+      - {role: hue,        cc: 33,               failsafe: 1500}
+      - {role: brightness, cc: 34, cc_lsb: 66,   failsafe: 1000}
+      - {role: param,      cc: 35,               failsafe: 1500}
     plane:
       board: pico
       max_brightness: 200
@@ -121,12 +148,15 @@ models:
         - {name: flaeche_links,  pin: 2, count: 30, zone: 0, offset: 0, reverse: false}
         - {name: flaeche_rechts, pin: 3, count: 30, zone: 0, offset: 0, reverse: true}
       relays:
-        # MOSFET, blitzt im Takt des Effekts
+        # MOSFET, blitzt im Takt des Effekts -- abgeleitet, kostet keine Bits
         - {name: scheinwerfer, pin: 6, source: pixel, arg: 0, threshold: 64,
            active_low: false, min_on_ms: 0, min_off_ms: 0}
-        # Relaismodul, ab Cue 5, mit Mindestschaltzeit
-        - {name: rauch, pin: 7, source: cue, arg: 5,
+        # Direkt ueber den Bus geschaltet: `arg` ist der Steckplatz in
+        # bus.relays, nicht eine Cue-Nummer.
+        - {name: rauch, pin: 7, source: bus, arg: 0,
            active_low: true, min_on_ms: 200, min_off_ms: 200}
+        - {name: blitz, pin: 8, source: bus, arg: 1,
+           active_low: false, min_on_ms: 0, min_off_ms: 0}
       nav_lights:
         - {strip: 0, index: 0,  color: [255, 0, 0]}
         - {strip: 1, index: 0,  color: [0, 255, 0]}

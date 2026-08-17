@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import bus as bus_mode
 from .config import (
     PICO_PHYSICAL_PIN,
     ModelCfg,
@@ -23,6 +24,7 @@ SOURCE_MACRO = {
     "brightness": "RELAY_SRC_BRIGHTNESS",
     "cue": "RELAY_SRC_CUE",
     "channel": "RELAY_SRC_CHANNEL",
+    "bus": "RELAY_SRC_BUS",
 }
 
 
@@ -92,6 +94,8 @@ def describe_relay(relay) -> str:
         what = f"an ab Master-Dimmer {relay.threshold}"
     elif relay.source == "cue":
         what = f"an ab Cue {relay.arg}"
+    elif relay.source == "bus":
+        what = f"direkt geschaltet, Bus-Steckplatz {relay.arg}"
     else:
         what = f"an ab RC-Kanal {relay.arg} ueber {relay.threshold}"
     return f"{what}; {speed}"
@@ -148,16 +152,42 @@ def generate(show: ShowCfg, model: ModelCfg) -> str:
     add("#define RC_TIMEOUT_MS 500")
     add("")
 
-    add(f"// {zones} zone(s); this model sits on transmitter channels "
-        f"{model.tx_offset + 1}..{model.tx_offset + len(model.channels)}.")
-    add(f"#define ZONE_COUNT {zones}")
-    add("#define ZONES { \\")
-    for zone in range(zones):
-        add(f"    {{{model.zone_base_channel(zone)}}},  /* Zone {zone}: Kanaele "
-            f"{model.zone_base_channel(zone)}.."
-            f"{model.zone_base_channel(zone) + 3} */ \\")
-    add("}")
-    add("")
+    if model.uses_bus:
+        first = model.tx_offset + 1
+        add(f"// Bus mode: channels {first}..{first + bus_mode.SYMBOLS - 1} carry "
+            f"one RS(8,6) coded frame,")
+        add(f"// {zones} zone(s) taking turns, one per RC frame.")
+        add("#define BUS_MODE 1")
+        add(f"#define BUS_FIRST_CHANNEL {first}")
+        add(f"#define BUS_ZONES {zones}")
+        add(f"#define BUS_RELAY_COUNT {model.bus.relay_count}")
+        if model.bus.relays:
+            add("// Slot order is the wire order; a relay refers to it by index.")
+            for index, relay in enumerate(model.bus.relays):
+                add(f"//   {index}: {relay.name}")
+        # The all-off command is a property of the wire, not of this model --
+        # bus.h owns it, and the cross-check keeps both sides in step.
+        add("")
+        add(f"#define ZONE_COUNT {zones}")
+        # A zone owns no channels here, but the rest of the firmware still asks
+        # for a base channel; the bus decoder is what actually feeds the zones.
+        add("#define ZONES { \\")
+        for zone in range(zones):
+            add(f"    {{{first}}},  /* Zone {zone}: aus dem Bus */ \\")
+        add("}")
+        add("")
+    else:
+        add("#define BUS_MODE 0")
+        add(f"// {zones} zone(s); this model sits on transmitter channels "
+            f"{model.tx_offset + 1}..{model.tx_offset + len(model.channels)}.")
+        add(f"#define ZONE_COUNT {zones}")
+        add("#define ZONES { \\")
+        for zone in range(zones):
+            add(f"    {{{model.zone_base_channel(zone)}}},  /* Zone {zone}: Kanaele "
+                f"{model.zone_base_channel(zone)}.."
+                f"{model.zone_base_channel(zone) + 3} */ \\")
+        add("}")
+        add("")
 
     add(f"#define STRIP_COUNT {len(plane.strips)}")
     if plane.strips:

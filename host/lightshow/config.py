@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from . import bus as bus_mode
 from .protocol import MAX_CH, MAX_PORTS, PortWire
 
 
@@ -61,7 +62,7 @@ PICO_PHYSICAL_PIN = {
     18: 24, 19: 25, 20: 26, 21: 27, 22: 29, 26: 31, 27: 32, 28: 34,
 }
 
-RELAY_SOURCES = ("pixel", "brightness", "cue", "channel")
+RELAY_SOURCES = ("pixel", "brightness", "cue", "channel", "bus")
 
 # A zone is four channels in this order, and both the airborne firmware and the
 # project timeline address them by position, not by name. So the order is not a
@@ -120,6 +121,33 @@ class PlaneCfg:
 
 
 @dataclass
+class BusRelayCfg:
+    """A relay switched straight over the bus, with a control change of its own."""
+
+    name: str
+    cc: int
+    failsafe: bool = False         # state before the first message arrives
+
+
+@dataclass
+class BusCfg:
+    """Bus mode: the model's eight channels carry one addressed data frame.
+
+    Without it, four channels are one zone and eight channels are two, full
+    stop. With it, the same eight channels carry a zone address and a payload,
+    so a model can have more zones than channels -- paid for in latency, since
+    one zone is refreshed per RC frame.
+    """
+
+    enabled: bool = False
+    relays: list[BusRelayCfg] = field(default_factory=list)
+
+    @property
+    def relay_count(self) -> int:
+        return len(self.relays)
+
+
+@dataclass
 class ModelCfg:
     name: str
     midi_channel: int              # 1..16 as shown in Ardour
@@ -127,14 +155,32 @@ class ModelCfg:
     tx_offset: int = 0             # first port channel this model occupies
     channels: list[ChannelCfg] = field(default_factory=list)
     plane: PlaneCfg | None = None
+    bus: BusCfg | None = None
 
     @property
     def zone_count(self) -> int:
         """One zone per group of four channels."""
         return max(1, len(self.channels) // CHANNELS_PER_ZONE)
 
+    @property
+    def uses_bus(self) -> bool:
+        return self.bus is not None and self.bus.enabled
+
+    @property
+    def wire_channels(self) -> int:
+        """How many RC channels the model occupies on its transmitter.
+
+        In bus mode that is always the eight the code needs, however many zones
+        the model has -- which is the whole point of the mode.
+        """
+        from .bus import SYMBOLS
+        return SYMBOLS if self.uses_bus else len(self.channels)
+
     def zone_base_channel(self, zone: int) -> int:
-        """First RC channel of a zone, counted as the transmitter counts."""
+        """First RC channel of a zone, counted as the transmitter counts.
+
+        Meaningless in bus mode, where no zone owns channels of its own.
+        """
         return self.tx_offset + zone * CHANNELS_PER_ZONE + 1
 
 
@@ -145,6 +191,10 @@ class ShowCfg:
     midi_port_name: str = "lightshow"
     blackout_cc: int | None = 119
     global_offset_ms: int = 0
+    # Above this, a bus zone waits so long for its turn that a cue change no
+    # longer lands on the beat. Nothing is forbidden -- combinations past it
+    # are shown as such, and the choice stays with whoever runs the show.
+    bus_latency_limit_ms: int = 150
     ports: list[PortCfg] = field(default_factory=list)
     models: list[ModelCfg] = field(default_factory=list)
 
@@ -160,11 +210,24 @@ class ShowCfg:
         Channels that no model drives fall back to the port minimum, which the
         airborne controllers read as "off".
         """
+        from . import bus as bus_mode
+
         wires = []
         for port in self.ports:
             failsafe = [port.min_us] * port.nchan
             for model in self.models:
                 if model.tx_port != port.id:
+                    continue
+                if model.uses_bus:
+                    # A per channel failsafe means nothing here: the eight
+                    # channels are one code word, and eight independent
+                    # "sensible" values are not a code word at all. What the
+                    # ground station must hold is a valid frame saying "off".
+                    symbols = bus_mode.failsafe_frame(
+                        model.zone_count, model.bus.relay_count)
+                    for index, symbol in enumerate(symbols):
+                        failsafe[model.tx_offset + index] = bus_mode.symbol_to_us(
+                            symbol, port.min_us, port.max_us)
                     continue
                 for index, channel in enumerate(model.channels):
                     failsafe[model.tx_offset + index] = channel.failsafe
@@ -196,6 +259,17 @@ def step_us(port: PortCfg, steps: int, index: int) -> int:
     span = port.max_us - port.min_us
     index = max(0, min(steps - 1, index))
     return port.min_us + round(span * (index + 0.5) / steps)
+
+
+def ppm_frame_minimum(nchan: int, max_us: int = 2000, sync_us: int = 400) -> int:
+    """Shortest PPM frame that can hold `nchan` channels at their maximum.
+
+    Every channel at full length, the sync pulse, and 3 ms of gap so the
+    receiver can tell where the frame ends. The airborne firmware rejects
+    anything shorter, so this is what the model wizard suggests and what the
+    configuration check enforces -- one rule, one place.
+    """
+    return nchan * max_us + sync_us + 3000
 
 
 def level_us(port: PortCfg, level: int) -> int:
@@ -360,6 +434,20 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
         elif relay.source == "channel":
             if not 1 <= relay.arg <= MAX_CH:
                 raise ConfigError(f"{spot}: channel must be between 1 and {MAX_CH}")
+        elif relay.source == "bus":
+            # `arg` is the slot in the model's bus.relays list, so the wire and
+            # the aircraft agree on which bit means which relay.
+            available = model.bus.relay_count if model.uses_bus else 0
+            if not available:
+                raise ConfigError(
+                    f"{spot}: source 'bus' needs the model to run in bus mode "
+                    f"with at least one entry under bus.relays"
+                )
+            if not 0 <= relay.arg < available:
+                raise ConfigError(
+                    f"{spot}: bus relay {relay.arg}, but the model declares "
+                    f"{available} ({', '.join(r.name for r in model.bus.relays)})"
+                )
         plane.relays.append(relay)
 
     for index, entry in enumerate(data.get("nav_lights") or []):
@@ -447,7 +535,7 @@ def _parse_port(data: dict[str, Any]) -> PortCfg:
             )
         # The firmware rejects frames that cannot hold every channel at its
         # maximum plus a 3 ms sync gap -- catch it here with a useful message.
-        needed = port.nchan * port.max_us + port.sync_us + 3000
+        needed = ppm_frame_minimum(port.nchan, port.max_us, port.sync_us)
         if port.frame_us < needed:
             raise ConfigError(
                 f"{where}: frame_us {port.frame_us} is too short for {port.nchan} "
@@ -456,6 +544,65 @@ def _parse_port(data: dict[str, Any]) -> PortCfg:
     elif port.format == "sbus" and port.frame_us < 4000:
         raise ConfigError(f"{where}: sbus frame_us must be at least 4000")
     return port
+
+
+def _parse_bus(data: Any, where: str) -> BusCfg | None:
+    """The `bus` section of a model. Absent or false means classic channels."""
+    if data is None or data is False:
+        return None
+    if data is True:
+        return BusCfg(enabled=True)
+    if not isinstance(data, dict):
+        raise ConfigError(f"{where}: must be true, false or a section")
+
+    bus_cfg = BusCfg(enabled=bool(data.get("enabled", True)))
+    entries = data.get("relays") or []
+    if not isinstance(entries, list):
+        raise ConfigError(f"{where}.relays: must be a list")
+    for index, entry in enumerate(entries):
+        spot = f"{where}.relays[{index}]"
+        if not isinstance(entry, dict):
+            raise ConfigError(f"{spot}: must be a section")
+        bus_cfg.relays.append(BusRelayCfg(
+            name=str(entry.get("name", f"relay{index}")),
+            cc=int(_require(entry, "cc", spot)),
+            failsafe=bool(entry.get("failsafe", False)),
+        ))
+    return bus_cfg
+
+
+def _check_bus(model: ModelCfg, port: PortCfg, where: str) -> None:
+    """What bus mode demands beyond the ordinary channel rules."""
+    zones = model.zone_count
+    relays = model.bus.relay_count
+
+    if len(model.channels) % CHANNELS_PER_ZONE != 0:
+        raise ConfigError(
+            f"{where}: bus mode carries whole zones, so channels come in "
+            f"groups of {CHANNELS_PER_ZONE} -- got {len(model.channels)}"
+        )
+    if zones > bus_mode.MAX_ZONES:
+        raise ConfigError(
+            f"{where}: {zones} zones, but the address field carries at most "
+            f"{bus_mode.MAX_ZONES}"
+        )
+    if not bus_mode.fits(zones, relays):
+        used = bus_mode.payload_used(zones, relays)
+        raise ConfigError(
+            f"{where}: {zones} zones and {relays} bus relays need {used} bits, "
+            f"but a frame carries {bus_mode.PAYLOAD_BITS}. Drop "
+            f"{used - bus_mode.PAYLOAD_BITS} relay(s) or a zone."
+        )
+
+    # A cue channel that quantises to something other than the 32 steps a
+    # symbol holds would be encoded twice, differently.
+    for index, channel in enumerate(model.channels):
+        if channel.role == "cue" and channel.quantize not in (None, bus_mode.GF_SIZE):
+            raise ConfigError(
+                f"{where}.channels[{index}]: bus mode carries a cue as one "
+                f"{bus_mode.SYMBOL_BITS} bit symbol, so quantize must be "
+                f"{bus_mode.GF_SIZE}, not {channel.quantize}"
+            )
 
 
 def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
@@ -475,10 +622,16 @@ def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
         raise ConfigError(f"{where}: 'channels' must be a non-empty list")
     if model.tx_offset < 0:
         raise ConfigError(f"{where}: tx_offset cannot be negative")
-    if model.tx_offset + len(channels) > port.nchan:
+
+    model.bus = _parse_bus(data.get("bus"), f"{where}.bus")
+
+    occupied = bus_mode.SYMBOLS if model.uses_bus else len(channels)
+    if model.tx_offset + occupied > port.nchan:
+        what = ("the bus needs eight channels" if model.uses_bus
+                else f"channels {model.tx_offset + 1}..{model.tx_offset + occupied}")
         raise ConfigError(
-            f"{where}: channels {model.tx_offset + 1}..{model.tx_offset + len(channels)} "
-            f"do not fit into port '{port.name}' with {port.nchan} channels"
+            f"{where}: {what}, which do not fit into port '{port.name}' with "
+            f"{port.nchan} channels"
         )
     model.channels = [
         _parse_channel(entry, f"{where}.channels[{index}]", port)
@@ -508,6 +661,16 @@ def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
                     f"{where}: CC {cc} used by both '{seen[cc]}' and '{channel.role}'"
                 )
             seen[cc] = channel.role
+
+    if model.uses_bus:
+        _check_bus(model, port, where)
+        for relay in model.bus.relays:
+            if relay.cc in seen:
+                raise ConfigError(
+                    f"{where}: CC {relay.cc} used by both '{seen[relay.cc]}' and "
+                    f"bus relay '{relay.name}'"
+                )
+            seen[relay.cc] = f"bus relay {relay.name}"
     if show.blackout_cc is not None and show.blackout_cc in seen:
         raise ConfigError(
             f"{where}: CC {show.blackout_cc} is reserved as blackout_cc but used by "
@@ -548,9 +711,12 @@ def _build(raw: dict[str, Any], source: str) -> ShowCfg:
         midi_port_name=str(raw.get("midi_port_name", "lightshow")),
         blackout_cc=None if blackout is None else int(blackout),
         global_offset_ms=int(raw.get("global_offset_ms", 0)),
+        bus_latency_limit_ms=int(raw.get("bus_latency_limit_ms", 150)),
     )
     if not 10 <= show.rate_hz <= 500:
         raise ConfigError("rate_hz must be between 10 and 500")
+    if show.bus_latency_limit_ms <= 0:
+        raise ConfigError("bus_latency_limit_ms must be positive")
     if show.global_offset_ms < 0:
         # We can delay the light, not advance it -- shift the audio instead.
         raise ConfigError("global_offset_ms cannot be negative")
@@ -590,7 +756,9 @@ def _build(raw: dict[str, Any], source: str) -> ShowCfg:
     # do not overlap -- that is how 16 channels feed four models.
     claimed: dict[tuple[int, int], str] = {}
     for model in show.models:
-        for index in range(len(model.channels)):
+        # A bus model occupies eight channels however many zones it has, so the
+        # block to reserve is the wire block, not the channel list.
+        for index in range(model.wire_channels):
             key = (model.tx_port, model.tx_offset + index)
             if key in claimed:
                 raise ConfigError(
@@ -613,6 +781,7 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
         "midi_port_name": show.midi_port_name,
         "blackout_cc": show.blackout_cc,
         "global_offset_ms": show.global_offset_ms,
+        "bus_latency_limit_ms": show.bus_latency_limit_ms,
         "tx_ports": [
             {
                 "id": port.id,
@@ -648,6 +817,16 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
                 item["invert"] = True
             item["failsafe"] = channel.failsafe
             entry["channels"].append(item)
+
+        if model.bus is not None:
+            entry["bus"] = {
+                "enabled": model.bus.enabled,
+                "relays": [
+                    {"name": relay.name, "cc": relay.cc,
+                     "failsafe": relay.failsafe}
+                    for relay in model.bus.relays
+                ],
+            }
 
         if model.plane is not None:
             plane = model.plane

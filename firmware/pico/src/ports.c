@@ -312,12 +312,26 @@ void ports_set_channels(uint8_t port, const uint16_t *values_us, uint8_t nchan) 
     ls_port_t *p = &s_ports[port];
     if (!p->active) return;
     if (nchan > p->cfg.nchan) nchan = p->cfg.nchan;
+
+    // ppm_build() runs in the DMA interrupt and snapshots every channel at
+    // once, so a frame never mixes two updates -- unless the interrupt lands
+    // in the middle of this loop. For ordinary channels that would cost one
+    // channel one frame of lag and nobody would see it. In bus mode the eight
+    // channels are a single code word, and half of an old one with half of a
+    // new one is two bad symbols: one more than the correction can repair.
+    // The window is under a microsecond against a frame of tens of thousands,
+    // but it is not zero, so close it.
+    bool was_enabled = irq_is_enabled(DMA_IRQ_0);
+    if (was_enabled) irq_set_enabled(DMA_IRQ_0, false);
+
     for (uint8_t i = 0; i < nchan; i++) {
         uint16_t v = values_us[i];
         if (v < p->cfg.min_us) v = p->cfg.min_us;
         if (v > p->cfg.max_us) v = p->cfg.max_us;
         p->values[i] = v;
     }
+
+    if (was_enabled) irq_set_enabled(DMA_IRQ_0, true);
 }
 
 void ports_apply_failsafe(void) {
