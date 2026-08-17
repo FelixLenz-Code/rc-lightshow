@@ -159,42 +159,60 @@ Der Nachmittag, an dem die Picos ankommen — in der Reihenfolge, in der jede
 Stufe die vorherige voraussetzt.
 
 ```
-[ ] 0  Toolchain
+[x] 0  Toolchain
        export PICO_SDK_PATH=$HOME/pico-sdk      (gehört in die ~/.bashrc)
        cd host && ./.venv/bin/python -m lightshow --check
 
-[ ] 1  Bodenstation flashen
+[x] 1  Bodenstation flashen
        cmake -S firmware/pico -B build/pico -DCMAKE_BUILD_TYPE=Release
        cmake --build build/pico -j4
        BOOTSEL halten, anstecken, build/pico/lightshow_tx.uf2 kopieren
        -> Status-LED leuchtet dauerhaft, TUI zeigt "link: ... ok"
        -> STAT-Zeile: crc_err=0, bad=0, cfg=1
 
-[ ] 2  Referenzlauf ohne Funk           Ergebnis: ______ us Eigenfehler
+[x] 2  Referenzlauf ohne Funk           Ergebnis:   0   us Eigenfehler
        Drahtbrücke GPIO2 -> GPIO10
        ./.venv/bin/python -m lightshow --sweep eule
        -> SELFTEST meldet idle, mark, frame passend zur Konfiguration
+       gemessen: idle=low (normal) mark=400us frame=22500us nch=8
+       88 von 90 Stichproben exakt; die zwei Ausreißer (-5/-6 us) sind ein
+       Artefakt des Messeingangs -- dort steht auch mark=394/395us statt 400,
+       der ganze Rahmen liest kurz, nicht der Kanal.
 
-[ ] 3  Messfirmware flashen
+       ACHTUNG: --sweep gibt die SELFTEST-Zeilen nicht aus. run_sweep in
+       host/lightshow/__main__.py sammelt sie in link.status_lines ein und
+       verwirft sie. Diese Zahl stammt aus einem eigenen Skript.
+
+[x] 3  Messfirmware flashen
        ./.venv/bin/python -m lightshow --generate eule
        cmake -S firmware/plane -B build/plane-measure -DMEASURE=ON \
              -DPLANE_CONFIG=generated/eule.h
        cmake --build build/plane-measure -j4
        -> beim Start: "MEASURE build: eine MEAS-Zeile je RC-Frame"
 
-[ ] 4  Funkstrecke aufbauen
+[x] 4  Funkstrecke aufbauen
        Klinke an den Trainer-Eingang, Ring offen, Masse gemeinsam
        Sender: Trainer-Kanäle auf die Lichtkanäle mischen, NICHT auf Gas/Ruder
        Empfänger SBUS -> Pico GP5, Masse gemeinsam, 5 V an Pin 39
 
-[ ] 5  Messlauf über die Luft
+       Der Modell-Pico hing am USB; ein UBEC war nicht nötig, weil die
+       Messfirmware ohnehin USB-Stdio einschaltet. Der Empfänger hatte eine
+       eigene Versorgung, Masse lag über die SBUS-Leitung gemeinsam.
+       Zwei Kanalnummerierungen nicht verwechseln: die Bodenstation speist
+       Trainer-EINGANGSkanäle, der Empfänger gibt Sende-AUSGANGSkanäle aus.
+       Was dazwischen liegt, macht der Mischer im Sender.
+
+[x] 5  Messlauf über die Luft                          gemessen 17.08.2026
        ./.venv/bin/python -m lightshow --sweep eule --plane-port /dev/ttyACM1
 
-       Frames am Modell ......... ______ /s     (erwartet ~45)
-       Punkte ohne Empfang ...... ______        (muss 0 sein)
-       Systematischer Versatz ... ______ us
-       Schlimmste Abweichung .... ______ us
-       => sichere Bits .......... ______        (heute angenommen: 5)
+       Frames am Modell .........  39,4 /s      (16-Kanal-PPM, 35,5 ms Rahmen)
+       Punkte ohne Empfang ......     0
+       Systematischer Versatz ...  -0,3 us      (konstanter Anteil allein)
+       Schlimmste Abweichung ....  13,1 us      -> 5 Bit, so gerechnet
+       => sichere Bits ..........     7          nach Abzug der Verstärkung
+
+       Aufbau: FrSky Tandem X14 RS, Trainer per Kabel, Schülerkanäle 9-16
+       auf Sendekanäle 9-16 durchgereicht. Licht liegt auf 9-16 (2 Zonen).
 
 [ ] 6  Koexistenz PWM + SBUS            (Propeller ab!)
        [ ] nur Knüppel: Servos folgen sauber
@@ -206,6 +224,43 @@ Stufe die vorherige voraussetzt.
        -> ab welcher Entfernung fallen Frames aus?
 ```
 
+## Was die Messung vom 17.08.2026 ergeben hat
+
+Die entscheidende Beobachtung steht in der Spalte *Streuung*: der Fehler ist
+keine Wolke, sondern eine **Gerade**. +12 µs am unteren Ende, null bei etwa
+1490 µs, −12 µs am oberen. Von Messung zu Messung schwankt dagegen fast nichts.
+
+Legt man statt eines konstanten Versatzes eine Gerade durch die 3690
+Einzelmessungen, trennen sich die beiden Anteile sauber:
+
+| | schlimmster Rest | sichere Bits | Stufen |
+|---|---|---|---|
+| nur Versatz — so rechnet `--analyse` heute | 13,1 µs | 5 | 32 |
+| Versatz **und** Verstärkung | 2,1 µs | 7 | 128 |
+
+```
+Verstaerkung a = 0,97622   (-2,38 %)   ->  aus 1000 us Hub werden 976 us
+Versatz     b = +35,3 us
+Standardabweichung um die Gerade: 0,47 us
+```
+
+Die −2,38 % sind eine Konstante der Codierungskette, nicht Rauschen: SBUS
+überträgt ganze Zahlen, und die Rückrechnung in Mikrosekunden trifft den Maßstab
+um 2,4 % daneben. Ein fester Faktor ist genauso herausrechenbar wie ein fester
+Offset — die heutige Auswertung zieht aber nur den Offset ab und verbucht den
+Faktor als Abweichung. **Deshalb sagt das Werkzeug 5 Bit, wo 7 drin sind.**
+
+Zwei Einschränkungen, damit daraus keine zu große Zahl wird:
+
+- Gemessen wurde **einmal, auf dem Tisch, mit einem Empfänger**. Dass der Faktor
+  über Temperatur, Zeit und andere Empfänger konstant bleibt, ist plausibel
+  (er folgt aus der Codierung), aber nicht nachgewiesen.
+- Wer die Verstärkung herausrechnet, muss sie auch **kalibrieren** — sonst gilt
+  weiter die 5-Bit-Zahl. Solange das nicht passiert, bleibt es bei 32 Stufen.
+
+Offen: `--analyse` sollte eine Gerade anlegen statt nur den Mittelwert
+abzuziehen, und beide Zahlen ausweisen — mit und ohne Verstärkungskorrektur.
+
 **Was danach entschieden ist:** Steht in Zeile 5 eine 6 oder mehr, trägt die
 Funkstrecke den Bus-Modus mit voller Breite (8 Zonen statt 4, Cue-Takt
 unverändert 22 ms). Steht dort eine 5, rechnet sich der Bus wie vorgerechnet.
@@ -214,6 +269,40 @@ wird.
 
 Die Zahlen bitte hier eintragen und die Datei committen — dann steht später
 nachvollziehbar da, worauf der Entwurf beruht.
+
+## Der Sender reicht den Trainer nicht immer durch
+
+Am Abend des 17.08.2026, beim Hardwaretest des Bus-Modus, tauchte etwas auf, das
+der Messlauf am Nachmittag noch nicht zeigte: **rund 15 % der Rahmen kamen nicht
+von der Bodenstation, sondern vom Sender selbst.** Die FrSky Tandem X14 RS
+wendete den Trainer-Eingang zeitweise nicht an und legte ihre eigenen
+Kanalwerte auf die Leitung. Sie meldete es auch selbst, als „LS-System ohne
+Funktion".
+
+Woran man es erkennt:
+
+- Werte **unterhalb von `min_us`** — die kann die Bodenstation nicht senden,
+  `ports_set_channels()` klemmt jeden Wert in den konfigurierten Hub
+- **alle acht Kanäle gleichzeitig** falsch, nicht einzelne
+- die Werte **wandern mit den Knüppeln** des Senders
+
+Ausgeschlossen wurde: Klinkenkabel und Steckkontakt, der 1-kΩ-Widerstand in der
+Signalleitung (ohne ihn dasselbe Bild), die Rahmenlänge (27000 bis 50000 µs,
+überall dieselbe Quote) und das Sendermodell (ein neu angelegtes verhielt sich
+gleich). Der Nachmittagslauf über 5263 Rahmen hatte **0,02 %** — es ist also
+nichts, was der Aufbau von sich aus mitbringt.
+
+Zwei Nebenbefunde aus derselben Messreihe:
+
+| Rahmenlänge | Ergebnis |
+|---|---|
+| bis ~35,5 ms | Daten kommen sauber an |
+| ab ~42 ms | **88 % Müll** — der Trainer-Eingang der X14 steigt aus |
+
+Und: die Prüfregel `nchan * max_us + sync_us + 3000` ist konservativer als
+nötig. Sie nimmt alle Kanäle auf Maximum an; stehen die ungenutzten Kanäle 1–8
+fest auf `min_us`, reicht auch ein deutlich kürzerer Rahmen. Bei 27000 µs statt
+35400 kamen die Daten fehlerfrei an.
 
 ## Wenn nichts ankommt
 
@@ -224,3 +313,4 @@ nachvollziehbar da, worauf der Entwurf beruht.
 | `src=2` | er liest PWM statt SBUS — SBUS-Leitung prüfen |
 | Werte stehen fest | Sender mischt den Trainer-Eingang nicht auf die Kanäle |
 | Frames weit unter 45/s | Reichweite, Antenne, oder der Sender sendet langsamer |
+| Werte unter `min_us` | der Sender wendet den Trainer-Eingang nicht an, siehe oben |
