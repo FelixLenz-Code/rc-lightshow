@@ -178,6 +178,42 @@ ms sitzen hörbar am Schlag, 284 ms nicht mehr sicher.
 Liegt das Licht auf den Kanälen 1–8 statt 9–16, ist der Rahmen 22,5 ms lang und
 sechs Zonen kommen auf 135 ms. Die Rahmenlänge ist der Hebel, nicht der Code.
 
+## Der Ausweg, falls die Rahmenzeit einmal stört
+
+Die 35,5 ms kommen nicht vom Bus, sondern davon, dass 16 PPM-Kanäle nun einmal
+so lange brauchen. Sie sind der Grund, warum sechs oder acht Zonen über der
+Latenzgrenze liegen — und sie sind auch der Grund, warum der Trainer-Eingang des
+Senders so viel zu tun hat.
+
+**SBUS statt PPM in den Sender** würde beides auflösen. Die Bodenstation kann es
+bereits: `format: sbus` steht in `show.yaml` auskommentiert bereit, `ports.c`
+hat den Sender dafür. Es wäre eine Konfigurationsänderung, kein Umbau.
+
+| | PPM, 16 Kanäle | SBUS |
+|---|---|---|
+| Rahmenlänge | 35,5 ms | 7 ms |
+| Latenz bei 4 Zonen | 142 ms | 28 ms |
+| Latenz bei 8 Zonen | 284 ms | 56 ms |
+
+Alle acht Zonen lägen damit innerhalb der 150-ms-Grenze, und die PPM-Dekodierung
+im Sender — die derzeit rund 15 % der Rahmen verliert — entfiele ersatzlos.
+
+Was dafür nötig wäre, Stand 17.08.2026, recherchiert in den FrSky-Quellen:
+
+- **Nicht an der 3,5-mm-Trainerbuchse.** Die kann nur CPPM; der Wunsch nach SBUS
+  dort ([Issue #784](https://github.com/FrSkyRC/ETHOS-Feedback-Community/issues/784))
+  wurde anders umgesetzt.
+- **Am S.Port-Stecker**, neu in EthOS **26.1.0**: *„SBUS Input support added on
+  the S.Port connector"*
+  ([Issue #5677](https://github.com/FrSkyRC/ETHOS-Feedback-Community/issues/5677)).
+- **Mindestens RC6**, denn davor ließ EthOS im Trainer nur 8 statt 16 SBUS-Kanäle
+  zu. 26.1.0 stand am 15.08.2026 bei RC8, X14-Builds sind dabei.
+- Die 5-V-Versorgung am S.Port ist einzeln abschaltbar — sie gehört **aus**, der
+  Pico versorgt sich selbst.
+- Ungeprüft: S.Port ist invertiert und halbduplex bei 3,3 V. Die `polarity`-
+  Einstellung deckt die Invertierung ab, der Rest gehört vor dem ersten Versuch
+  ins Handbuch.
+
 ## Grenzen, die zu kennen sind
 
 - **Nur SBUS.** Der Bus-Dekoder liest acht Kanäle; über die vier PWM-Drähte
