@@ -699,6 +699,76 @@ dialog {
 dialog::backdrop { background: rgba(0,0,0,.6); }
 dialog td { border: none; padding: 4px 12px 4px 0; }
 
+/* ================================================================== wizard */
+
+dialog.wizard { max-width: min(880px, calc(100vw - 32px)); width: 880px; }
+dialog.wizard td { padding: 3px 6px 3px 0; }
+
+.wiz-steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.wiz-step {
+  font-size: 12px; padding: 4px 11px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--text-3); white-space: nowrap;
+}
+.wiz-step.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.wiz-step.on {
+  color: var(--accent); background: var(--accent-dim);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* Tall enough to hold the longest step without the dialog jumping in height
+ * every time a row is added. */
+.wiz-body { min-height: 340px; max-height: min(60vh, 560px); overflow: auto; }
+
+.wiz-grid {
+  display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.wiz-combo {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: 9px 11px; border-radius: 9px; text-align: left;
+  border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text); cursor: pointer; font: inherit;
+}
+.wiz-combo:hover { border-color: var(--line-2); }
+.wiz-combo b { font-size: 13px; }
+.wiz-combo span { font-size: 11.5px; color: var(--text-3); }
+.wiz-combo em { font-size: 11.5px; font-style: normal; color: var(--accent); }
+.wiz-combo.on {
+  border-color: var(--accent); background: var(--accent-dim);
+}
+/* Past the latency budget: still offered, just visibly not the easy choice. */
+.wiz-combo.slow { opacity: .5; }
+.wiz-combo.slow em { color: var(--live); }
+
+/* Zones down, bus relays across -- the shape of the trade-off in one look. */
+/* width:auto against the .tablewrap default -- otherwise the row header column
+ * stretches across the whole card and the numbers drift apart. */
+table.bus-matrix { border-collapse: collapse; font-size: 12px; width: auto; }
+table.bus-matrix th {
+  font-weight: 500; color: var(--text-3); padding: 5px 9px;
+  border: 1px solid var(--line); background: var(--surface-2); white-space: nowrap;
+}
+table.bus-matrix th.bus-corner { text-align: left; font-size: 11px; }
+table.bus-matrix th.bus-zone { text-align: center; }
+.bus-cell {
+  border: 1px solid var(--line); padding: 5px 11px; text-align: center;
+  cursor: pointer; color: var(--text-2); background: var(--surface);
+  font-variant-numeric: tabular-nums;
+}
+.bus-cell:hover { background: var(--surface-3); color: var(--text); }
+.bus-cell.on {
+  background: var(--accent-dim); color: var(--accent);
+  border-color: var(--accent); font-weight: 600;
+}
+/* Past the latency budget: still selectable, just visibly not the easy choice. */
+.bus-cell.slow { color: var(--live); opacity: .65; }
+.bus-cell.none { color: var(--text-3); opacity: .35; cursor: default; }
+.bus-cell.none:hover { background: var(--surface); color: var(--text-3); }
+
+.wiz-list { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-2); }
+.wiz-list li { margin-bottom: 3px; }
+.warn-text { color: var(--live); }
+
 /* =============================================================== responsive */
 
 @media (max-width: 1080px) {

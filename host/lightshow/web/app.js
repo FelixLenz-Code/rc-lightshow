@@ -1618,6 +1618,163 @@ const RELAY_SOURCES = [
   ['cue', 'ab Cue'], ['channel', 'eigener RC-Kanal'],
 ];
 
+/* "Directly over the bus" is only offered where a slot exists for it -- an
+ * option that cannot be saved is worse than one that is missing. */
+const sourcesFor = (model) =>
+  (model.bus && model.bus.enabled && (model.bus.relays || []).length)
+    ? RELAY_SOURCES.concat([['bus', 'direkt über den Bus']])
+    : RELAY_SOURCES;
+
+/* Zone/relay combinations per transmitter, from /api/bus. The rules live on
+ * the server; this is only the last answer it gave. */
+let BUS = null;
+
+/* The combinations as a matrix: zones down, bus relays across.
+ *
+ * As a flat list of tiles this is over a hundred buttons and reads as a wall.
+ * Laid out on its two axes the shape of the trade-off is visible at a glance --
+ * going down costs latency, going right costs payload bits, and the empty
+ * bottom right corner is where the two run out together.
+ *
+ * `attrs(zones, relays)` supplies whatever the caller needs to catch the click.
+ */
+function busMatrix(combinations, chosenZones, chosenRelays, attrs) {
+  const byZone = new Map();
+  let widest = 0;
+  for (const entry of combinations) {
+    if (!byZone.has(entry.zones)) byZone.set(entry.zones, new Map());
+    byZone.get(entry.zones).set(entry.relays, entry);
+    widest = Math.max(widest, entry.relays);
+  }
+  const columns = Array.from({length: widest + 1}, (_, index) => index);
+
+  const head = columns.map((relays) =>
+    `<th>${relays === 0 ? 'keine' : relays}</th>`).join('');
+
+  const rows = [...byZone.keys()].sort((a, b) => a - b).map((zones) => {
+    const cells = columns.map((relays) => {
+      const entry = byZone.get(zones).get(relays);
+      if (!entry) return '<td class="bus-cell none" title="passt nicht ins Bitbudget">—</td>';
+      const chosen = zones === chosenZones && relays === chosenRelays;
+      return `<td class="bus-cell ${chosen ? 'on' : ''} ${entry.within_budget ? '' : 'slow'}"
+        ${attrs(zones, relays)} title="${entry.spare_bits} Bit übrig">
+        ${entry.latency_ms.toFixed(0)}</td>`;
+    }).join('');
+    return `<tr><th class="bus-zone">${zones}</th>${cells}</tr>`;
+  }).join('');
+
+  return `<div class="tablewrap"><table class="bus-matrix">
+    <thead><tr><th class="bus-corner">Zonen \\ Relais</th>${head}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>
+  <p class="dim" style="font-size:11.5px;margin:6px 0 0">
+    Zahlen sind Millisekunden, bis dieselbe Zone wieder an der Reihe ist.
+    — heißt: passt nicht ins Bitbudget.</p>`;
+}
+
+async function loadBus() {
+  BUS = await api('/api/bus');
+  // The answer usually arrives after the first render, and the models view is
+  // often not the one on screen yet -- draw it in either case, or the chooser
+  // silently stays empty until something else happens to redraw.
+  if (CONFIG) renderModels();
+}
+
+/* Picking a combination rewrites the model: zones are groups of four channels,
+ * bus relays are entries with a control change each. Existing zones keep their
+ * control changes so a change of mind does not renumber a whole show. */
+function applyBusChoice(model, zones, relays) {
+  const groups = Math.max(1, Math.floor(model.channels.length / 4));
+  const taken = new Set();
+  if (CONFIG.blackout_cc !== null) taken.add(CONFIG.blackout_cc);
+  for (const other of CONFIG.models) {
+    if (other.midi_channel !== model.midi_channel || other === model) continue;
+    other.channels.forEach((channel) => {
+      taken.add(channel.cc);
+      if (channel.cc_lsb != null) taken.add(channel.cc_lsb);
+    });
+    ((other.bus && other.bus.relays) || []).forEach((relay) => taken.add(relay.cc));
+  }
+  model.channels.forEach((channel) => {
+    taken.add(channel.cc);
+    if (channel.cc_lsb != null) taken.add(channel.cc_lsb);
+  });
+
+  const nextCC = () => {
+    for (let cc = 20; cc <= 110; cc++) if (!taken.has(cc)) { taken.add(cc); return cc; }
+    return 20;
+  };
+
+  if (zones > groups) {
+    for (let zone = groups; zone < zones; zone++) {
+      model.channels.push({role: 'cue', cc: nextCC(), quantize: 32, failsafe: 1000});
+      model.channels.push({role: 'hue', cc: nextCC(), failsafe: 1500});
+      model.channels.push({role: 'brightness', cc: nextCC(), cc_lsb: nextCC(),
+                           failsafe: 1000});
+      model.channels.push({role: 'param', cc: nextCC(), failsafe: 1500});
+    }
+  } else if (zones < groups) {
+    model.channels.length = zones * 4;
+    // Strips and relays must not be left pointing at a zone that is gone.
+    if (model.plane) {
+      model.plane.strips.forEach((s) => { s.zone = Math.min(s.zone, zones - 1); });
+      model.plane.relays.forEach((r) => { r.zone = Math.min(r.zone, zones - 1); });
+    }
+  }
+
+  const existing = (model.bus && model.bus.relays) || [];
+  const list = existing.slice(0, relays);
+  while (list.length < relays)
+    list.push({name: `bus${list.length}`, cc: nextCC(), failsafe: false});
+  model.bus = {enabled: true, relays: list};
+
+  // A relay pointing at a slot that no longer exists would fail validation on
+  // save; move it back to something that always works.
+  if (model.plane) {
+    model.plane.relays.forEach((relay) => {
+      if (relay.source === 'bus' && relay.arg >= relays) {
+        relay.source = 'cue';
+        relay.arg = 1;
+      }
+    });
+  }
+}
+
+/* The combination chooser for a model that already exists. Same table the
+ * wizard shows, so both say the same thing about the same aircraft. */
+function busPanel(model, mi) {
+  if (!BUS || !BUS.ports) return '';
+  const port = BUS.ports[String(model.tx_port)];
+  if (!port) return '';
+
+  const zones = Math.max(1, Math.floor(model.channels.length / 4));
+  const relays = (model.bus && model.bus.relays ? model.bus.relays.length : 0);
+  const on = !!(model.bus && model.bus.enabled);
+  const free = (CONFIG.tx_ports.find((p) => p.id === model.tx_port) || {}).nchan
+    - model.tx_offset;
+  const classic = zones * 4 <= free;
+
+  const matrix = busMatrix(port.combinations, on ? zones : -1, on ? relays : -1,
+    (z, r) => `data-act="bus-pick" data-m="${mi}" data-zones="${z}" data-relays="${r}"`);
+
+  return `
+    <h3 class="section">Bus-Modus</h3>
+    <p class="muted" style="margin:0 0 10px;font-size:12.5px">
+      Ohne Bus trägt jede Zone vier eigene Kanäle — schnellstmöglich, aber
+      ${Math.floor(free / 4)} Zone(n) sind das Maximum bei ${free} freien Kanälen.
+      Mit Bus tragen acht Kanäle einen codierten Rahmen und die Zonen kommen reihum
+      dran: mehr Zonen und direkt schaltbare Relais, dafür Wartezeit.
+      Blass heißt langsamer als die Grenze von ${BUS.limit_ms} ms.
+    </p>
+    <label class="row" style="gap:8px;margin-bottom:10px">
+      <input type="checkbox" ${on ? 'checked' : ''} data-act="bus-toggle" data-m="${mi}"
+        ${classic || on ? '' : 'disabled'}>
+      <span>Bus-Modus für dieses Modell${classic ? '' :
+        ' — bei so vielen Zonen ohne Alternative'}</span>
+    </label>
+    ${matrix}`;
+}
+
 /* id 0 sits on GPIO2, id 1 on GPIO3 and so on -- see hardware/README.md. */
 const portGpio = (id) => 2 + id;
 
@@ -1627,6 +1784,7 @@ async function loadConfig() {
   CONFIG = answer.config;
   $('config-path').textContent = answer.path;
   renderModels();
+  loadBus();          // fills in the combination tables once they arrive
 }
 
 function pinUsers(plane) {
@@ -1712,6 +1870,8 @@ function renderModels() {
             data-set="plane" data-m="${mi}" data-key="render_hz" style="width:100%"></div>
       </div>
 
+      ${busPanel(model, mi)}
+
       <h3 class="section">LED-Strips · ${plane.strips.length}/8</h3>
       <div class="tablewrap"><table class="form">
         <thead><tr><th>Name</th><th>GPIO</th><th>Pixel</th><th>Zone</th>
@@ -1755,7 +1915,7 @@ function renderModels() {
               data-set="relays" data-m="${mi}" data-i="${ri}" data-key="pin"></td>
             <td>${zoneSelect(zones, relay.zone, 'relays', mi, ri)}</td>
             <td><select data-set="relays" data-m="${mi}" data-i="${ri}" data-key="source">
-              ${RELAY_SOURCES.map(([value, label]) =>
+              ${sourcesFor(model).map(([value, label]) =>
                 `<option value="${value}" ${relay.source === value ? 'selected' : ''}>${label}</option>`).join('')}
             </select></td>
             <td><input type="number" min="0" max="255" value="${relay.arg}" style="width:66px"
@@ -1876,6 +2036,13 @@ function wireModels() {
       },
       'add-nav': () => model().plane.nav_lights.push({strip: 0, index: 0, color: [255, 255, 255]}),
       del: () => model().plane[element.dataset.list].splice(+element.dataset.i, 1),
+      'bus-toggle': () => {
+        const entry = model();
+        if (entry.bus && entry.bus.enabled) entry.bus.enabled = false;
+        else entry.bus = {enabled: true, relays: (entry.bus && entry.bus.relays) || []};
+      },
+      'bus-pick': () => applyBusChoice(model(), +element.dataset.zones,
+                                       +element.dataset.relays),
     };
     element.onclick = () => { actions[element.dataset.act](); renderModels(); };
   });
@@ -1915,6 +2082,12 @@ $('btn-config-save').onclick = async () => {
 $('btn-config-reload').onclick = () => {
   $('config-note').classList.add('hidden');
   loadConfig();
+};
+
+/* The wizard lives in wizard.js; this is the only way in. */
+$('btn-wizard').onclick = () => {
+  if (LOCKED) return toast('Während einer laufenden Show gesperrt.', 'warn', 4000);
+  wizOpen();
 };
 
 /* ================================================================== Anschluss */

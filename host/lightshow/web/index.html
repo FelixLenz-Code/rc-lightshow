@@ -164,6 +164,11 @@
           Sender. Hier steht, an welcher Sender-Buchse es hängt und welche Lichter an
           Bord sind — daraus entstehen die Bordfirmware und die Anschlussliste.</p>
         <div id="lock-note" class="note warn hidden"></div>
+        <div class="row" style="margin-bottom:14px">
+          <button id="btn-wizard" class="primary">＋ Neues Modell</button>
+          <span class="dim" style="font-size:12px">Führt durch Fernsteuerung, Zonen,
+            LED-Ausgänge und Relais.</span>
+        </div>
         <div id="models"></div>
         <div class="row" style="margin-top:16px">
           <button id="btn-config-save" class="primary">Speichern</button>
@@ -236,7 +241,24 @@
   </div>
 </dialog>
 
+<dialog id="wizard" class="wizard">
+  <h2 style="margin:0 0 4px;font-size:17px">Neues Modell</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12.5px">Vier Schritte, in der
+    Reihenfolge, in der einer den nächsten festlegt.</p>
+  <div id="wiz-steps" class="wiz-steps"></div>
+  <div id="wiz-body" class="wiz-body"></div>
+  <div id="wiz-note" class="note warn hidden" style="margin-top:12px"></div>
+  <div class="row" style="margin-top:18px">
+    <button id="wiz-cancel" class="quiet">Abbrechen</button>
+    <span class="grow"></span>
+    <button id="wiz-back">Zurück</button>
+    <button id="wiz-next" class="primary">Weiter</button>
+    <button id="wiz-create" class="primary hidden">Modell anlegen</button>
+  </div>
+</dialog>
+
 <script src="effects.js"></script>
 <script src="app.js"></script>
+<script src="wizard.js"></script>
 </body>
 </html>
