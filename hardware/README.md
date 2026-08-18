@@ -128,11 +128,28 @@ ankommen; beides ist gleichzeitig aktiv, ein Umschalter entfällt.
 
 ### WS2812-Beschaltung
 
+Ein Streifen hat drei Anschlüsse: **+5V, DIN, GND**. Die 5 V kommen direkt vom
+UBEC, das Datensignal über einen Pegelwandler vom Pico — und GND gehört zu
+beidem. DIN ist gegen Masse referenziert; fehlt die gemeinsame Masse, hat das
+Datensignal keinen Bezug und der Streifen flackert oder bleibt dunkel, obwohl
+Versorgung und Datenleitung richtig aussehen.
+
 ```
-GPIO2 ──▶ 74AHCT125 ──[ 330R ]──▶ DIN Strip 1
-GPIO3 ──▶ 74AHCT125 ──[ 330R ]──▶ DIN Strip 2
-5V ──┬── LED-Streifen +5V
-     └── 1000 µF ── GND
+Flugakku ──▶ UBEC 5 V / 3 A
+              │
+              ├─ +5V ─┬─────────────────────▶ Streifen +5V
+              │       ├── 1000 µF ── GND      (dicht am Streifen)
+              │       ├─────────────────────▶ 74AHCT125 Pin 14 (VCC)
+              │       └─────────────────────▶ Pico Pin 39 (VSYS)
+              │
+              └─ GND ─┬─────────────────────▶ Streifen GND
+                      ├─────────────────────▶ 74AHCT125 Pin 7 (GND)
+                      ├─────────────────────▶ Pico Pin 38 (GND)
+                      └─────────────────────▶ Empfänger GND
+
+GPIO2 (Pin 4) ──▶ 74AHCT125 1A ─▶ 1Y ──[ 330R ]──▶ DIN Strip 1
+GPIO3 (Pin 5) ──▶ 74AHCT125 2A ─▶ 2Y ──[ 330R ]──▶ DIN Strip 2
+                  74AHCT125 OE (Pin 1, 4, 10, 13) ── GND
 ```
 
 Der Pegelwandler ist nicht optional: 3,3 V Datenpegel an einem 5-V-Streifen
@@ -140,7 +157,25 @@ läuft mal und setzt mal aus, gern erst in der Luft. Der 330-Ω-Widerstand
 schützt die erste LED, der Elko fängt Einschaltspitzen ab.
 
 Ein 74AHCT125 enthält vier Treiber, versorgt aus 5 V — er reicht also für vier
-Strips.
+Strips. Jeder Treiber hat einen eigenen Enable-Eingang, und der ist **active
+low**: Pin 1, 4, 10 und 13 müssen auf GND liegen, sonst bleiben die Ausgänge
+hochohmig und es passiert schlicht nichts. Die Versorgung muss aus den 5 V
+kommen, nicht aus 3V3 — genau darin besteht der Zweck des AHCT: er erkennt
+3,3-V-Eingänge als High und macht daraus saubere 5-V-Ausgänge.
+
+Die Masse ist ein Stern, keine Kette. Alle vier GND-Zweige gehen zum UBEC
+zurück. Schleift man die Streifenmasse durch den Pico durch, läuft der gesamte
+LED-Strom über dessen Massefläche — bis zu 3,6 A bei 60 LEDs auf Weiß, gegen
+die paar Milliampere, für die das Board gedacht ist.
+
+Die 5 V nie vom Pico abgreifen: VBUS (Pin 40) hängt am USB-Anschluss und ist im
+Flug tot, 3V3_OUT (Pin 36) liefert 300 mA. VSYS (Pin 39) ist ein Eingang, dort
+speist der UBEC ein.
+
+WS2812B sind gerichtet, die Pfeile auf der Platine zeigen von DIN nach DOUT; am
+falschen Ende eingespeist bleibt alles dunkel. Sitzt ein Streifen deshalb
+verkehrt herum im Flügel, dreht `reverse` in der Strip-Tabelle die
+Pixelreihenfolge in Software um, statt dass man neu löten muss.
 
 ### Relais-Ausgänge
 
