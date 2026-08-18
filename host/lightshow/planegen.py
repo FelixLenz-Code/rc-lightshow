@@ -55,14 +55,8 @@ def wiring(model: ModelCfg) -> list[WiringRow]:
                   "nur zur Fehlersuche, kann frei bleiben"),
         WiringRow(plane.sbus_pin, _pin_label(plane.sbus_pin), "SBUS-Eingang",
                   "SBUS-Ausgang des Empfaengers",
-                  "bevorzugter Weg: eine Leitung, alle 16 Kanaele"),
+                  "der einzige Weg: eine Leitung, alle 16 Kanaele"),
     ]
-
-    for index, pin in enumerate(plane.pwm_pins):
-        rows.append(WiringRow(
-            pin, _pin_label(pin), f"PWM-Eingang {index + 1}",
-            f"Empfaengerkanal {index + 1}",
-            "nur noetig, wenn der Empfaenger kein SBUS hat"))
 
     for index, strip in enumerate(plane.strips):
         rows.append(WiringRow(
@@ -143,8 +137,6 @@ def generate(show: ShowCfg, model: ModelCfg) -> str:
     add("")
     add("#define SBUS_UART   uart1")
     add(f"#define SBUS_RX_PIN {plane.sbus_pin}")
-    add("#define PWM_PINS  {" + ", ".join(str(p) for p in plane.pwm_pins) + "}")
-    add(f"#define PWM_COUNT {len(plane.pwm_pins)}")
     add("")
     add(f"#define RC_MIN_US {port.min_us}")
     add(f"#define RC_MAX_US {port.max_us}")

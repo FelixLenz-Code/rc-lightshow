@@ -108,7 +108,7 @@ Der LED-Streifen bekommt seine 5 V **direkt vom UBEC**, nicht über den Pico.
 | 2, 3   | WS2812-Daten, ein Pin je Strip              |
 | 5      | SBUS vom Empfänger (UART1 RX, invertiert)   |
 | 6, 7   | Relais-Ausgänge                             |
-| 10–13  | PWM-Eingänge, Fallback ohne SBUS            |
+| 10–13  | frei                                        |
 | 39/38  | VSYS / GND vom UBEC                         |
 
 Der SBUS-Eingang ist **nicht** frei wählbar: die Firmware liest ihn mit UART1,
@@ -121,10 +121,10 @@ Das ist die Vorgabe in `config.h`. Strips, Relais und Zonen stehen dort als
 Tabellen — bis zu 8 Strips (je eine PIO-State-Machine) und 8 Relais, jedes
 Modell so, wie es gebraucht wird.
 
-SBUS wird bevorzugt: eine Leitung statt vier, und alle Kanäle des Empfängers
-stehen zur Verfügung — genug für ein Modell mit mehreren Zonen, die je vier
-Kanäle brauchen. Die PWM-Eingänge werden nur benutzt, wenn keine SBUS-Frames
-ankommen; beides ist gleichzeitig aktiv, ein Umschalter entfällt.
+SBUS ist der einzige Weg: eine Leitung statt vier, und alle Kanäle des
+Empfängers stehen zur Verfügung — genug für ein Modell mit mehreren Zonen, die
+je vier Kanäle brauchen. Ohne frische Frames läuft das Modell ins Failsafe.
+Ein Empfänger ohne SBUS-Ausgang lässt sich nicht verwenden.
 
 ### WS2812-Beschaltung
 

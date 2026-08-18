@@ -149,12 +149,9 @@ int main(void) {
                     show.brightness = 0;
                 }
 #else
-                // With SBUS the zone sits at its configured place inside the
-                // 16 channel frame. With PWM the four wires are the four
-                // channels, so every zone reads the same block.
-                uint8_t base = (rc.source == RC_SOURCE_SBUS)
-                                   ? outputs_zone_base_channel(zone)
-                                   : 1;
+                // Jede Zone sitzt an ihrem konfigurierten Platz im
+                // 16-Kanal-Rahmen.
+                uint8_t base = outputs_zone_base_channel(zone);
                 show.cue = decode_step(rc_channel_us(&rc, base), CUE_STEPS);
                 show.hue = decode_u8(rc_channel_us(&rc, base + 1));
                 show.brightness = decode_u8(rc_channel_us(&rc, base + 2));
@@ -179,8 +176,7 @@ int main(void) {
         // repeating it would make a dropout look like clean reception.
         if (rc.frames != last_frames) {
             last_frames = rc.frames;
-            uint8_t base = (rc.source == RC_SOURCE_SBUS)
-                               ? outputs_zone_base_channel(0) : 1;
+            uint8_t base = outputs_zone_base_channel(0);
             printf("MEAS ms=%lu seq=%lu src=%d c%u=%u c%u=%u c%u=%u c%u=%u step=%u\n",
                    (unsigned long)now_ms, (unsigned long)rc.frames, (int)rc.source,
                    base + 0, rc_channel_us(&rc, base + 0),

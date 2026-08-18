@@ -310,7 +310,6 @@ fest auf `min_us`, reicht auch ein deutlich kürzerer Rahmen. Bei 27000 µs stat
 |---|---|
 | keine MEAS-Zeilen | Messfirmware geflasht? Richtiger `/dev/ttyACM*`? |
 | `src=0` | keine gültigen SBUS-Frames — Verkabelung, gemeinsame Masse |
-| `src=2` | er liest PWM statt SBUS — SBUS-Leitung prüfen |
 | Werte stehen fest | Sender mischt den Trainer-Eingang nicht auf die Kanäle |
 | Frames weit unter 45/s | Reichweite, Antenne, oder der Sender sendet langsamer |
 | Werte unter `min_us` | der Sender wendet den Trainer-Eingang nicht an, siehe oben |

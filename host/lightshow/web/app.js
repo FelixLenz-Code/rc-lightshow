@@ -1794,7 +1794,6 @@ function pinUsers(plane) {
     users.get(pin).push(what);
   };
   add(plane.sbus_pin, 'SBUS');
-  (plane.pwm_pins || []).forEach((pin, index) => add(pin, `PWM ${index + 1}`));
   plane.strips.forEach((strip) => add(strip.pin, `Strip „${strip.name}“`));
   plane.relays.forEach((relay) => add(relay.pin, `Relais „${relay.name}“`));
   return users;
@@ -2020,7 +2019,7 @@ function wireModels() {
 
     const actions = {
       'add-plane': () => {
-        model().plane = {board: 'pico', sbus_pin: 5, pwm_pins: [10, 11, 12, 13],
+        model().plane = {board: 'pico', sbus_pin: 5,
           max_brightness: 200, render_hz: 200, strips: [], relays: [], nav_lights: []};
       },
       'add-strip': () => {
@@ -2065,7 +2064,7 @@ function markClashes() {
 }
 
 function freePin(plane) {
-  const used = new Set([0, 1, plane.sbus_pin, ...(plane.pwm_pins || []),
+  const used = new Set([0, 1, plane.sbus_pin,
     ...plane.strips.map((strip) => strip.pin), ...plane.relays.map((relay) => relay.pin)]);
   for (const pin of [2, 3, 4, 6, 7, 8, 9, 14, 15, 16, 17, 18, 19, 20, 21, 22, 26, 27, 28])
     if (!used.has(pin)) return pin;

@@ -9,7 +9,6 @@
 typedef enum {
     RC_SOURCE_NONE = 0,
     RC_SOURCE_SBUS,
-    RC_SOURCE_PWM,
 } rc_source_t;
 
 typedef struct {

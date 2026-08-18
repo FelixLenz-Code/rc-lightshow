@@ -126,8 +126,8 @@ UBEC anschließt, speist an der USB-Schutzdiode vorbei ein.
 
 ## Gegengeprüft
 
-Die Belegung — Strips auf GPIO 2/3, Lasten auf 6/7, SBUS auf 5, `pwm_pins`
-leer — läuft ohne Beanstandung durch `config._parse_plane()`: kein Pin doppelt
+Die Belegung — Strips auf GPIO 2/3, Lasten auf 6/7, SBUS auf 5 — läuft ohne
+Beanstandung durch `config._parse_plane()`: kein Pin doppelt
 belegt, SBUS auf einer UART1-RX-Leitung, GPIO 0/1 für die Konsole frei. Eine
 Platine, die diese Netzliste umsetzt, kann keine Konfiguration erzwingen, die
 die Web-UI später ablehnt.
@@ -247,23 +247,18 @@ Buchse dreipolig bleibt — so passt ein normales Servokabel weiterhin direkt
 hinein, und die +5-V-Ader endet an einem Pad, das nirgendwo hinführt. Der
 Empfänger versorgt sich selbst.
 
-**Kein PWM-Eingang.** Die Platine spricht ausschließlich SBUS. Das kostet den
-Rückfallpfad: bleiben die SBUS-Frames aus, gibt es keine zweite Quelle mehr,
-und die Firmware geht ins Failsafe. Dafür ist die Verdrahtung eine Leitung
-statt vier. `rc_input.c:82` klammert den ganzen PWM-Zweig mit
-`#if PWM_COUNT > 0`, und `pwm_pins: []` läuft ohne Beanstandung durch die
-Konfigurationsprüfung.
+**Nur SBUS.** Der PWM-Rückfall ist inzwischen aus der Firmware entfernt — der
+Empfänger spricht SBUS und sonst nichts. Bleiben die Frames aus, läuft das
+Modell ins Failsafe. Ein Empfänger ohne SBUS-Ausgang lässt sich nicht
+verwenden; eine Konfiguration mit `pwm_pins` weist die Prüfung ab.
 
-**Niemals einen Pull-up auf die SBUS-Leitung.** Der Pin wird in
-`rc_input.c:121` mit `gpio_set_inover(INVERT)` invertiert, und der RP2040
-startet seine Pads mit aktivem Pull-down. Ein abgezogener Empfänger liest
-dadurch als UART-Ruhepegel — keine Störbytes. Ein externer Pull-up würde das
-umdrehen und Dauer-Framing-Fehler erzeugen. Wer es explizit will, setzt einen
-10-kΩ-Pull-down oder ein `gpio_pull_down(SBUS_RX_PIN)` in die Firmware; die
-PWM-Pins bekommen das in Zeile 129 bereits.
+**Niemals einen Pull-up auf die SBUS-Leitung.** Der Pin wird invertiert
+gelesen, und die Firmware zieht ihn ausdrücklich auf Masse — invertiert ist das
+der Ruhepegel, ein abgezogener Empfänger liest also als stille Leitung. Ein
+externer Pull-up würde das umdrehen und Dauer-Framing-Fehler erzeugen.
 
-**GPIO 10 bis 13 sind frei.** In einer späteren Version passen dort zwei
-weitere Strips und zwei weitere Relais hin.
+**GPIO 10 bis 13 sind frei** und in der Konfigurationsprüfung ganz normal für
+Strips oder Relais verwendbar — dafür gibt es jetzt auch einen Test.
 
 ## Layout
 

@@ -216,8 +216,8 @@ Was dafür nötig wäre, Stand 17.08.2026, recherchiert in den FrSky-Quellen:
 
 ## Grenzen, die zu kennen sind
 
-- **Nur SBUS.** Der Bus-Dekoder liest acht Kanäle; über die vier PWM-Drähte
-  eines Empfängers ohne SBUS geht das nicht. Die Firmware prüft das.
+- **Nur SBUS.** Der Bus-Dekoder liest acht Kanäle. Ein Empfänger ohne
+  SBUS-Ausgang lässt sich am Modell überhaupt nicht verwenden.
 - **Ein einziger kaputter Kanal** lässt den Rahmen durchfallen, solange
   `BUS_CORRECT` nicht gesetzt ist. Gemessen kostet das rund 5 % der Rahmen —
   bezahlt dafür, dass fremde Rahmen draußen bleiben.

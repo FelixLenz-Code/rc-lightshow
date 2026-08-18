@@ -181,33 +181,22 @@ def test_the_pins_uart1_does_reach_are_accepted(tmp_path, pin):
     assert show.models[0].plane.sbus_pin == pin
 
 
-def test_a_pwm_pin_that_is_not_on_the_header_is_rejected(tmp_path):
-    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: [10, 11, 12, 30]")
-    with pytest.raises(config_module.ConfigError, match="GPIO 30"):
+def test_pwm_pins_are_rejected_now_that_the_receiver_is_sbus_only(tmp_path):
+    """Eine alte Konfiguration soll auffallen, nicht stillschweigend wirkungslos
+    werden -- sonst glaubt jemand weiter an einen Rueckfallpfad."""
+    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: [10, 11, 12, 13]")
+    with pytest.raises(config_module.ConfigError, match="pwm_pins does not exist"):
         config_module.load(write(tmp_path, text))
 
 
-def test_a_repeated_pwm_pin_is_rejected(tmp_path):
-    """pwm_irq() serves the first match and returns, so the second never updates."""
-    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: [10, 10, 12, 13]")
-    with pytest.raises(config_module.ConfigError, match="twice in pwm_pins"):
-        config_module.load(write(tmp_path, text))
-
-
-def test_a_partial_set_of_pwm_pins_is_rejected(tmp_path):
-    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: [10, 11]")
-    with pytest.raises(config_module.ConfigError, match="pwm_pins needs 4"):
-        config_module.load(write(tmp_path, text))
-
-
-def test_a_receiver_with_sbus_may_have_no_pwm_pins_at_all(tmp_path):
-    """Legitimate: one wire from the receiver, nothing else soldered."""
-    text = PLANE.replace("board: pico", "board: pico\n      pwm_pins: []")
+def test_gpio_10_to_13_are_free_for_strips_now(tmp_path):
+    """Was frueher PWM belegte, steht jetzt fuer Ausgaenge zur Verfuegung."""
+    text = PLANE.replace(
+        "- {name: rumpf, pin: 2, count: 30}",
+        "- {name: rumpf, pin: 2, count: 30}\n"
+        "        - {name: fluegel, pin: 10, count: 20}")
     show = config_module.load(write(tmp_path, text))
-    assert show.models[0].plane.pwm_pins == []
-
-
-# --------------------------------------------------------------- channel roles
+    assert [s.pin for s in show.models[0].plane.strips] == [2, 10]
 
 
 def test_swapped_channel_roles_are_rejected(tmp_path):

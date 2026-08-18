@@ -112,7 +112,6 @@ class PlaneCfg:
 
     board: str = "pico"
     sbus_pin: int = 5
-    pwm_pins: list[int] = field(default_factory=lambda: [10, 11, 12, 13])
     max_brightness: int = 200
     render_hz: int = 200
     strips: list[StripCfg] = field(default_factory=list)
@@ -319,7 +318,6 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
     plane = PlaneCfg(
         board=str(data.get("board", "pico")),
         sbus_pin=int(data.get("sbus_pin", 5)),
-        pwm_pins=[int(p) for p in data.get("pwm_pins", [10, 11, 12, 13])],
         max_brightness=int(data.get("max_brightness", 200)),
         render_hz=int(data.get("render_hz", 200)),
     )
@@ -328,29 +326,22 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
     if not 30 <= plane.render_hz <= 1000:
         raise ConfigError(f"{where}: render_hz must be between 30 and 1000")
 
+    # PWM ist ersatzlos entfallen -- der Empfaenger spricht nur noch SBUS. Eine
+    # alte Konfiguration darf nicht stillschweigend durchrutschen, sonst glaubt
+    # jemand weiter an einen Rueckfallpfad, den es nicht mehr gibt.
+    if "pwm_pins" in data:
+        raise ConfigError(
+            f"{where}: pwm_pins does not exist any more -- the airborne firmware "
+            f"reads SBUS only. Remove the key; GPIO 10-13 are free for strips or "
+            f"relays now"
+        )
+
     _check_gpio(plane.sbus_pin, where, "SBUS input")
     if plane.sbus_pin not in PICO_UART1_RX_GPIO:
         raise ConfigError(
             f"{where}: GPIO {plane.sbus_pin} cannot receive SBUS -- the firmware "
             f"uses uart1, whose RX line only reaches GPIO "
             f"{', '.join(str(p) for p in sorted(PICO_UART1_RX_GPIO))}"
-        )
-
-    # An SBUS-only model may leave these out entirely; what must not happen is a
-    # list that looks plausible and quietly loses a channel.
-    seen_pwm: set[int] = set()
-    for index, pin in enumerate(plane.pwm_pins):
-        _check_gpio(pin, f"{where}.pwm_pins[{index}]", "PWM input")
-        if pin in seen_pwm:
-            raise ConfigError(
-                f"{where}: GPIO {pin} appears twice in pwm_pins -- the firmware "
-                f"serves only the first of them, so a channel would never update"
-            )
-        seen_pwm.add(pin)
-    if plane.pwm_pins and len(plane.pwm_pins) != CHANNELS_PER_ZONE:
-        raise ConfigError(
-            f"{where}: pwm_pins needs {CHANNELS_PER_ZONE} pins (cue, hue, "
-            f"brightness, param) or none at all, got {len(plane.pwm_pins)}"
         )
 
     strips = data.get("strips") or []
@@ -473,8 +464,6 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
     # One pin can only do one job. The UART pins are reserved for the console.
     used: dict[int, str] = {0: "debug UART TX", 1: "debug UART RX",
                             plane.sbus_pin: "SBUS input"}
-    for pin in plane.pwm_pins:
-        used.setdefault(pin, "PWM input")
     for strip in plane.strips:
         if strip.pin in used:
             raise ConfigError(
@@ -833,7 +822,6 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
             entry["plane"] = {
                 "board": plane.board,
                 "sbus_pin": plane.sbus_pin,
-                "pwm_pins": list(plane.pwm_pins),
                 "max_brightness": plane.max_brightness,
                 "render_hz": plane.render_hz,
                 "strips": [

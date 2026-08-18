@@ -22,7 +22,6 @@ const wizFreeGpio = () => {
     const plane = model.plane;
     if (!plane) continue;
     used.add(plane.sbus_pin);
-    (plane.pwm_pins || []).forEach((pin) => used.add(pin));
     (plane.strips || []).forEach((strip) => used.add(strip.pin));
     (plane.relays || []).forEach((relay) => used.add(relay.pin));
   }
@@ -427,7 +426,6 @@ function wizBuild() {
     plane: {
       board: 'pico',
       sbus_pin: WIZ.sbus_pin,
-      pwm_pins: [10, 11, 12, 13],
       max_brightness: 200,
       render_hz: 200,
       strips: WIZ.strips.map((strip) => ({...strip})),

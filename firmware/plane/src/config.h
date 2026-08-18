@@ -32,19 +32,12 @@
 // ------------------------------------------------------------- RC input -----
 //
 // Each model has its own receiver on its own transmitter, so this is about one
-// aircraft's channels. SBUS is preferred: one wire instead of four, and all 16
-// channels are there -- room for several zones at four channels each. PWM is
-// the fallback for receivers without SBUS. Both are read; SBUS wins whenever
-// its frames are fresh.
+// aircraft's channels. The receiver talks SBUS and nothing else: one wire
+// instead of four, and all 16 channels are there -- room for several zones at
+// four channels each. Without fresh frames the model runs its failsafe.
 
 #define SBUS_UART      uart1
 #define SBUS_RX_PIN    5
-
-// Four PWM inputs, used only when no SBUS frames arrive. They always feed
-// zone 0, whatever base_channel says -- with PWM the four wires *are* the
-// four channels.
-#define PWM_PINS  {10, 11, 12, 13}
-#define PWM_COUNT 4
 
 // Channel range, matching min_us/max_us in show.yaml.
 #define RC_MIN_US 1000

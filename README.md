@@ -281,13 +281,13 @@ RP2040-Zero (2,4 g statt ~3 g): `-DPICO_BOARD=waveshare_rp2040_zero`.
 | 2, 3   | WS2812-Daten, ein Pin je Strip            |
 | 5      | SBUS vom Empfänger                        |
 | 6, 7   | Relais-Ausgänge                           |
-| 10–13  | PWM-Eingänge, Fallback ohne SBUS          |
+| 10–13  | frei                                      |
 
 Versorgung über **VSYS (Pin 39)** und GND (Pin 38) vom UBEC, nicht über VBUS —
 so stört ein gleichzeitig gestecktes USB-Kabel beim Einrichten nicht.
 
-SBUS wird bevorzugt, PWM automatisch genutzt, wenn keine SBUS-Frames ankommen.
-Beides läuft gleichzeitig, es gibt keinen Umschalter.
+Der Empfänger spricht **nur SBUS**. Bleiben die Frames aus, läuft das Modell
+ins Failsafe — es gibt keinen zweiten Weg.
 
 Der Pegelwandler vor den LED-Strips ist **nicht optional**: 3,3 V Datenpegel an
 einem 5-V-Streifen funktioniert mal und setzt mal aus, gern erst in der Luft.

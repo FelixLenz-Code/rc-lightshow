@@ -71,41 +71,6 @@ static void sbus_poll(void) {
     }
 }
 
-// ----------------------------------------------------------------- PWM ------
-//
-// A receiver with SBUS needs none of this, so a model may declare no PWM pins
-// at all. Everything below is therefore compiled away rather than left to run
-// over empty tables -- an array of zero elements has no s_pwm_pins[0] to read.
-
-static volatile uint32_t s_pwm_frames;
-
-#if PWM_COUNT > 0
-
-static const uint8_t s_pwm_pins[PWM_COUNT] = PWM_PINS;
-static volatile uint32_t s_pwm_rise_us[PWM_COUNT];
-static volatile uint16_t s_pwm_width_us[PWM_COUNT];
-static volatile uint32_t s_pwm_last_ms[PWM_COUNT];
-
-static void pwm_irq(uint gpio, uint32_t events) {
-    for (uint8_t i = 0; i < PWM_COUNT; i++) {
-        if (s_pwm_pins[i] != gpio) continue;
-
-        if (events & GPIO_IRQ_EDGE_RISE) {
-            s_pwm_rise_us[i] = time_us_32();
-        } else if (events & GPIO_IRQ_EDGE_FALL) {
-            uint32_t width = time_us_32() - s_pwm_rise_us[i];
-            if (width >= 700 && width <= 2300) {
-                s_pwm_width_us[i] = (uint16_t)width;
-                s_pwm_last_ms[i] = to_ms_since_boot(get_absolute_time());
-                if (i == 0) s_pwm_frames++;   // channel 1 sets the pace
-            }
-        }
-        return;
-    }
-}
-
-#endif // PWM_COUNT > 0
-
 // ---------------------------------------------------------------- public ----
 
 void rc_input_init(void) {
@@ -119,24 +84,13 @@ void rc_input_init(void) {
     uart_init(SBUS_UART, 100000);
     gpio_set_function(SBUS_RX_PIN, GPIO_FUNC_UART);
     gpio_set_inover(SBUS_RX_PIN, GPIO_OVERRIDE_INVERT);
+    // Pull the pad down explicitly. Inverted, that is the idle level, so an
+    // unplugged receiver reads as a quiet line instead of a stream of framing
+    // errors. The RP2040 happens to reset its pads this way, but relying on
+    // that would make an external pull-up on this line silently fatal.
+    gpio_pull_down(SBUS_RX_PIN);
     uart_set_format(SBUS_UART, 8, 2, UART_PARITY_EVEN);
     uart_set_fifo_enabled(SBUS_UART, true);
-
-#if PWM_COUNT > 0
-    for (uint8_t i = 0; i < PWM_COUNT; i++) {
-        gpio_init(s_pwm_pins[i]);
-        gpio_set_dir(s_pwm_pins[i], GPIO_IN);
-        gpio_pull_down(s_pwm_pins[i]);
-        s_pwm_width_us[i] = (RC_MIN_US + RC_MAX_US) / 2;
-    }
-    gpio_set_irq_enabled_with_callback(s_pwm_pins[0],
-                                       GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL,
-                                       true, pwm_irq);
-    for (uint8_t i = 1; i < PWM_COUNT; i++) {
-        gpio_set_irq_enabled(s_pwm_pins[i],
-                             GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-    }
-#endif
 }
 
 void rc_input_poll(rc_state_t *out) {
@@ -153,25 +107,15 @@ void rc_input_poll(rc_state_t *out) {
         return;
     }
 
-    // Fall back to the PWM inputs; a channel counts as live on its own.
-    bool any = false;
-#if PWM_COUNT > 0
-    for (uint8_t i = 0; i < PWM_COUNT; i++) {
-        if (s_pwm_last_ms[i] != 0 && now_ms - s_pwm_last_ms[i] < RC_TIMEOUT_MS) {
-            out->channel_us[i] = s_pwm_width_us[i];
-            any = true;
-        } else {
-            out->channel_us[i] = RC_MIN_US;
-        }
-    }
-#endif
-    for (uint8_t i = PWM_COUNT; i < RC_MAX_CHANNELS; i++) {
+    // Nothing fresh. Report the link as dead rather than holding the last
+    // values -- the caller runs its failsafe pattern on that.
+    for (uint8_t i = 0; i < RC_MAX_CHANNELS; i++) {
         out->channel_us[i] = RC_MIN_US;
     }
-    out->channel_count = PWM_COUNT;
-    out->source = any ? RC_SOURCE_PWM : RC_SOURCE_NONE;
-    out->valid = any;
-    out->frames = s_pwm_frames;
+    out->channel_count = 0;
+    out->source = RC_SOURCE_NONE;
+    out->valid = false;
+    out->frames = s_sbus_frames;
 }
 
 uint16_t rc_channel_us(const rc_state_t *state, uint8_t channel) {
