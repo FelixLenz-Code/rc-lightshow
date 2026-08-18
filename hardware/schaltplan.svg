@@ -1,0 +1,639 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 1680" width="1700" height="1680">
+<rect width="1700" height="1680" fill="#faf8f4"/>
+<text x="40" y="48" text-anchor="start" font-size="26" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Bordplatine · 2 WS2812-Strips, 2 MOSFET-Kanäle, Pico gesockelt</text>
+<text x="40" y="74" text-anchor="start" font-size="13" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">Netznamen verbinden über Blöcke hinweg — gleicher Name ist dasselbe Netz. Netzliste, Stückliste und Layout-Regeln in hardware/platine.md</text>
+<rect x="40" y="96" width="620" height="270" rx="10" fill="#ffffff" stroke="#d9d4ca" stroke-width="1.5"/>
+<text x="58" y="124" text-anchor="start" font-size="16" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Stromversorgung</text>
+<rect x="170" y="206" width="96" height="96" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="218" y="180" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J1</text>
+<text x="218" y="196" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">UBEC 5 V / 3 A</text>
+<rect x="178" y="214" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="202" y="227" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 +5V</text>
+<path d="M170 222 L144 222" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="178" y="254" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="202" y="267" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 GND</text>
+<path d="M170 262 L144 262" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M144 222 L120 222 L120 150" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M144 262 L100 262 L100 296" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M100 296 L100 312" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M86 312 L114 312" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M91 318 L109 318" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M96 324 L104 324" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M120 150 L450 150" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="250" cy="150" r="4" fill="#15171a"/>
+<path d="M250 150 L250 134" fill="none" stroke="#b8341f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="250,124 241,136 259,136" fill="#b8341f"/>
+<text x="250" y="116" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#b8341f" font-weight="700" font-style="normal">+5V</text>
+<circle cx="300" cy="150" r="4" fill="#15171a"/>
+<path d="M300 150 L300 180" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M300 187 L300 210" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M300 247 L300 224" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M283 210 L317 210" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M283 224 A 17 12 0 0 0 317 224" fill="none" stroke="#15171a" stroke-width="2.4"/>
+<text x="276" y="205" text-anchor="middle" font-size="15" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">+</text>
+<text x="324" y="213" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">C1</text>
+<text x="324" y="229" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">1000 µF</text>
+<path d="M300 247 L300 265" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M300 265 L300 281" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M286 281 L314 281" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M291 287 L309 287" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M296 293 L304 293" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="400" cy="150" r="4" fill="#15171a"/>
+<path d="M400 150 L400 180" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M400 187 L400 210" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M400 247 L400 224" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M383 210 L417 210" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M383 224 L417 224" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="424" y="213" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">C3</text>
+<text x="424" y="229" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">100 nF</text>
+<path d="M400 247 L400 265" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M400 265 L400 281" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M386 281 L414 281" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M391 287 L409 287" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M396 293 L404 293" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="450" y="139" width="46" height="22" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<path d="M462 150 L484 150" fill="none" stroke="#15171a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="473" y="131" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">JP1</text>
+<path d="M496 150 L530 150" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M530 150 L544 150" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="544,150 556,137 632,137 632,163 556,163" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="564" y="155" text-anchor="start" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">+5V_RC</text>
+<rect x="560" y="200" width="96" height="118" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="608" y="174" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">JP2</text>
+<text x="608" y="190" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">Quelle für +VL</text>
+<rect x="568" y="208" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="592" y="221" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 +5V</text>
+<path d="M560 216 L534 216" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="568" y="242" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="592" y="255" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 +VL</text>
+<path d="M560 250 L534 250" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="568" y="276" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="592" y="289" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">3 VL_J5</text>
+<path d="M560 284 L534 284" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M500 216 L500 200" fill="none" stroke="#b8341f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="500,190 491,202 509,202" fill="#b8341f"/>
+<text x="500" y="182" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#b8341f" font-weight="700" font-style="normal">+5V</text>
+<path d="M534 216 L500 216" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M534 250 L520 250" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="520,250 508,237 465,237 465,263 508,263" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="500" y="255" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a6100" font-weight="700" font-style="normal">+VL</text>
+<path d="M534 284 L520 284" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="520,284 508,271 443,271 443,297 508,297" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="500" y="289" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a6100" font-weight="700" font-style="normal">VL_J5</text>
+<text x="140" y="334" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#a2431a" font-weight="400" font-style="normal">JP2 auf 1–2: Lasten laufen aus dem UBEC, J5 bleibt leer. Auf 2–3: Lasten aus J5.</text>
+<text x="140" y="354" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">JP1 nur schließen, wenn der Empfänger vom selben UBEC leben soll</text>
+<rect x="40" y="376" width="620" height="680" rx="10" fill="#ffffff" stroke="#d9d4ca" stroke-width="1.5"/>
+<text x="58" y="404" text-anchor="start" font-size="16" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Controller</text>
+<rect x="250" y="402" width="220" height="620" rx="6" fill="#fff" stroke="#15171a" stroke-width="2.2"/>
+<text x="360.0" y="428" text-anchor="middle" font-size="14" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">U1</text>
+<text x="360.0" y="447" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">Raspberry Pi Pico</text>
+<text x="360.0" y="464" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">auf Buchsenleisten</text>
+<rect x="250" y="485" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="497" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">1</text>
+<text x="294" y="497" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP0</text>
+<path d="M250 492 L236 492" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,492 224,479 137,479 137,505 224,505" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="497" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">UART_TX</text>
+<rect x="456" y="485" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="497" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">40</text>
+<text x="426" y="497" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">VBUS</text>
+<path d="M470 492 L494 492" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M488 484 L506 500 M488 500 L506 484" stroke="#a2431a" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+<rect x="250" y="512" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="524" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">2</text>
+<text x="294" y="524" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP1</text>
+<path d="M250 519 L236 519" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,519 224,506 137,506 137,532 224,532" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="524" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">UART_RX</text>
+<rect x="456" y="512" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="524" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">39</text>
+<text x="426" y="524" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">VSYS</text>
+<path d="M470 519 L530 519" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M530 519 L530 503" fill="none" stroke="#b8341f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="530,493 521,505 539,505" fill="#b8341f"/>
+<text x="530" y="485" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#b8341f" font-weight="700" font-style="normal">+5V</text>
+<rect x="250" y="539" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="551" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">3</text>
+<text x="294" y="551" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GND</text>
+<path d="M250 546 L110 546" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="456" y="539" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="551" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">38</text>
+<text x="426" y="551" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GND</text>
+<path d="M470 546 L570 546 L570 620" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M570 620 L570 636" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M556 636 L584 636" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M561 642 L579 642" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M566 648 L574 648" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="250" y="566" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="578" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">4</text>
+<text x="294" y="578" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP2</text>
+<path d="M250 573 L236 573" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,573 224,560 159,560 159,586 224,586" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="578" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">DATA1</text>
+<rect x="456" y="566" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="578" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">37</text>
+<text x="426" y="578" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">3V3_EN</text>
+<rect x="250" y="593" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="605" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">5</text>
+<text x="294" y="605" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP3</text>
+<path d="M250 600 L236 600" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,600 224,587 159,587 159,613 224,613" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="605" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">DATA2</text>
+<rect x="456" y="593" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="605" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">36</text>
+<text x="426" y="605" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">3V3_OUT</text>
+<rect x="250" y="620" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="632" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">6</text>
+<text x="294" y="632" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP4</text>
+<rect x="456" y="620" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="632" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">35</text>
+<text x="426" y="632" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">ADC_VREF</text>
+<rect x="250" y="647" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="659" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">7</text>
+<text x="294" y="659" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP5</text>
+<path d="M250 654 L236 654" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,654 224,641 170,641 170,667 224,667" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="659" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">SBUS</text>
+<rect x="456" y="647" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="659" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">34</text>
+<text x="426" y="659" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP28</text>
+<rect x="250" y="674" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="686" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">8</text>
+<text x="294" y="686" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GND</text>
+<path d="M250 681 L110 681" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="456" y="674" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="686" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">33</text>
+<text x="426" y="686" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">AGND</text>
+<rect x="250" y="701" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="713" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">9</text>
+<text x="294" y="713" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP6</text>
+<path d="M250 708 L236 708" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,708 224,695 170,695 170,721 224,721" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="713" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">REL1</text>
+<rect x="456" y="701" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="713" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">32</text>
+<text x="426" y="713" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP27</text>
+<rect x="250" y="728" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="740" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">10</text>
+<text x="294" y="740" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP7</text>
+<path d="M250 735 L236 735" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,735 224,722 170,722 170,748 224,748" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="740" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">REL2</text>
+<rect x="456" y="728" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="740" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">31</text>
+<text x="426" y="740" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP26</text>
+<rect x="250" y="755" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="767" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">11</text>
+<text x="294" y="767" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP8</text>
+<rect x="456" y="755" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="767" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">30</text>
+<text x="426" y="767" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">RUN</text>
+<rect x="250" y="782" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="794" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">12</text>
+<text x="294" y="794" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP9</text>
+<rect x="456" y="782" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="794" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">29</text>
+<text x="426" y="794" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP22</text>
+<rect x="250" y="809" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="821" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">13</text>
+<text x="294" y="821" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GND</text>
+<path d="M250 816 L110 816" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="456" y="809" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="821" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">28</text>
+<text x="426" y="821" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GND</text>
+<rect x="250" y="836" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="848" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">14</text>
+<text x="294" y="848" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP10</text>
+<path d="M250 843 L236 843" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,843 224,830 170,830 170,856 224,856" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="848" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM1</text>
+<rect x="456" y="836" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="848" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">27</text>
+<text x="426" y="848" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP21</text>
+<rect x="250" y="863" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="875" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">15</text>
+<text x="294" y="875" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP11</text>
+<path d="M250 870 L236 870" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,870 224,857 170,857 170,883 224,883" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="875" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM2</text>
+<rect x="456" y="863" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="875" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">26</text>
+<text x="426" y="875" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP20</text>
+<rect x="250" y="890" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="902" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">16</text>
+<text x="294" y="902" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP12</text>
+<path d="M250 897 L236 897" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,897 224,884 170,884 170,910 224,910" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="902" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM3</text>
+<rect x="456" y="890" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="902" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">25</text>
+<text x="426" y="902" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP19</text>
+<rect x="250" y="917" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="929" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">17</text>
+<text x="294" y="929" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GP13</text>
+<path d="M250 924 L236 924" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="236,924 224,911 170,911 170,937 224,937" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="216" y="929" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM4</text>
+<rect x="456" y="917" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="929" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">24</text>
+<text x="426" y="929" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP18</text>
+<rect x="250" y="944" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="956" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">18</text>
+<text x="294" y="956" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">GND</text>
+<path d="M250 951 L110 951" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="456" y="944" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="956" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">23</text>
+<text x="426" y="956" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GND</text>
+<rect x="250" y="971" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="983" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">19</text>
+<text x="294" y="983" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP14</text>
+<rect x="456" y="971" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="983" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">22</text>
+<text x="426" y="983" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP17</text>
+<rect x="250" y="998" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="272" y="1010" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">20</text>
+<text x="294" y="1010" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP15</text>
+<rect x="456" y="998" width="14" height="14" fill="#fff" stroke="#15171a" stroke-width="1.5"/>
+<text x="448" y="1010" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">21</text>
+<text x="426" y="1010" text-anchor="end" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">GP16</text>
+<path d="M110 546 L110 951" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="110" cy="546" r="4" fill="#15171a"/>
+<circle cx="110" cy="681" r="4" fill="#15171a"/>
+<circle cx="110" cy="816" r="4" fill="#15171a"/>
+<circle cx="110" cy="951" r="4" fill="#15171a"/>
+<path d="M110 951 L110 967" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M96 967 L124 967" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M101 973 L119 973" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M106 979 L114 979" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="58" y="1042" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#a2431a" font-weight="400" font-style="normal">Nicht bezeichnete Pins bleiben unbeschaltet · VBUS niemals mit dem UBEC verbinden</text>
+<rect x="40" y="1086" width="620" height="200" rx="10" fill="#ffffff" stroke="#d9d4ca" stroke-width="1.5"/>
+<text x="58" y="1114" text-anchor="start" font-size="16" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Debug-UART   ·   3,3 V, kein 5-V-Adapter</text>
+<rect x="330" y="1130" width="96" height="136" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="378" y="1104" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J9</text>
+<text x="378" y="1120" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">Konsole</text>
+<rect x="338" y="1138" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="362" y="1151" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 TX (GP0)</text>
+<path d="M330 1146 L304 1146" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="338" y="1178" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="362" y="1191" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 RX (GP1)</text>
+<path d="M330 1186 L304 1186" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="338" y="1218" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="362" y="1231" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">3 GND</text>
+<path d="M330 1226 L304 1226" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M304 1146 L290 1146" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="290,1146 278,1133 191,1133 191,1159 278,1159" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="270" y="1151" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">UART_TX</text>
+<path d="M304 1186 L290 1186" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="290,1186 278,1173 191,1173 191,1199 278,1199" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="270" y="1191" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">UART_RX</text>
+<path d="M304 1226 L262 1226" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M262 1226 L262 1242" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M248 1242 L276 1242" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M253 1248 L271 1248" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M258 1254 L266 1254" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="40" y="1316" width="620" height="320" rx="10" fill="#ffffff" stroke="#d9d4ca" stroke-width="1.5"/>
+<text x="58" y="1344" text-anchor="start" font-size="16" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Worauf es beim Layout ankommt</text>
+<text x="62" y="1358" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Sternmasse</text>
+<text x="178" y="1358" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="400" font-style="normal">Streifen-, Last- und Controllermasse treffen sich am</text>
+<text x="178" y="1380" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">UBEC-Anschluss J1/J5, nicht in Reihe durch den Pico.</text>
+<text x="62" y="1402" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">5-V-Bahn</text>
+<text x="178" y="1402" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="400" font-style="normal">mindestens 2 mm breit, kurz und direkt zu J2/J3.</text>
+<text x="178" y="1424" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">60 LEDs auf Weiß ziehen 3,6 A.</text>
+<text x="62" y="1446" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">C1</text>
+<text x="178" y="1446" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="400" font-style="normal">gehört ans Ende der 5-V-Bahn, dicht an die</text>
+<text x="178" y="1468" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">Streifenanschlüsse — dort entsteht die Einschaltspitze.</text>
+<text x="62" y="1490" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Lastpfad</text>
+<text x="178" y="1490" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="400" font-style="normal">J5 über Q1/Q2 nach J6/J7 getrennt von der Signalmasse</text>
+<text x="178" y="1512" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">führen, erst am Sternpunkt zusammen.</text>
+<text x="62" y="1534" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Datenleitung</text>
+<text x="178" y="1534" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="400" font-style="normal">R1/R2 direkt an die U2-Ausgänge setzen, nicht an</text>
+<text x="178" y="1556" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">den Streifenstecker.</text>
+<text x="62" y="1578" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Pegelwandler</text>
+<text x="178" y="1578" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="400" font-style="normal">U2 so dicht an den Pico wie möglich, die 5-V-Seite</text>
+<text x="178" y="1600" text-anchor="start" font-size="12" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">darf lang sein, die 3,3-V-Seite nicht.</text>
+<rect x="700" y="96" width="960" height="430" rx="10" fill="#ffffff" stroke="#d9d4ca" stroke-width="1.5"/>
+<text x="718" y="124" text-anchor="start" font-size="16" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Pegelwandler und LED-Ausgänge   ·   U2 = SN74AHCT125N, DIP-14</text>
+<path d="M730 215 L730 199" fill="none" stroke="#b8341f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="730,189 721,201 739,201" fill="#b8341f"/>
+<text x="730" y="181" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#b8341f" font-weight="700" font-style="normal">+5V</text>
+<path d="M730 215 L730 247" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M730 247 L730 270" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M730 307 L730 284" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M713 270 L747 270" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M713 284 L747 284" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="754" y="273" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">C2</text>
+<text x="754" y="289" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">100 nF</text>
+<path d="M730 307 L730 340" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M730 340 L730 356" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M716 356 L744 356" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M721 362 L739 362" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M726 368 L734 368" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="746" y="219" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">14</text>
+<text x="746" y="344" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">7</text>
+<text x="770" y="400" text-anchor="middle" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">Versorgung U2</text>
+<path d="M854 215 L840 215" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="840,215 828,202 763,202 763,228 828,228" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="820" y="220" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">DATA1</text>
+<polygon points="880,181 880,249 938,215" fill="#fff" stroke="#15171a" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="896" y="220" text-anchor="start" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">U2A</text>
+<path d="M854 215 L880 215" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="874" y="206" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">2</text>
+<path d="M938 215 L964 215" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="944" y="206" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">3</text>
+<circle cx="901" cy="187" r="6" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<path d="M901 181 L901 155" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="907" y="171" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">1</text>
+<path d="M901 155 L915 155" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="915,155 927,142 970,142 970,168 927,168" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="935" y="160" text-anchor="start" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">GND</text>
+<path d="M964 215 L986 215" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1028 215 L1050 215" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="986" y="206" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="1007" y="198" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R1</text>
+<text x="1007" y="245" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">330 Ω</text>
+<path d="M1050 215 L1284 215" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1310" y="165" width="96" height="118" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="1358" y="139" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J2</text>
+<text x="1358" y="155" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">WS2812 Strip 1</text>
+<rect x="1318" y="173" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1342" y="186" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 +5V</text>
+<path d="M1310 181 L1284 181" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1318" y="207" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1342" y="220" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 DIN</text>
+<path d="M1310 215 L1284 215" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1318" y="241" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1342" y="254" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">3 GND</text>
+<path d="M1310 249 L1284 249" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1284 181 L1240 181" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1240 181 L1240 165" fill="none" stroke="#b8341f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1240,155 1231,167 1249,167" fill="#b8341f"/>
+<text x="1240" y="147" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#b8341f" font-weight="700" font-style="normal">+5V</text>
+<path d="M1284 249 L1250 249" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1250 249 L1250 265" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1236 265 L1264 265" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1241 271 L1259 271" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1246 277 L1254 277" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M854 375 L840 375" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="840,375 828,362 763,362 763,388 828,388" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="820" y="380" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">DATA2</text>
+<polygon points="880,341 880,409 938,375" fill="#fff" stroke="#15171a" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="896" y="380" text-anchor="start" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">U2B</text>
+<path d="M854 375 L880 375" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="874" y="366" text-anchor="end" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">5</text>
+<path d="M938 375 L964 375" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="944" y="366" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">6</text>
+<circle cx="901" cy="347" r="6" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<path d="M901 341 L901 315" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="907" y="331" text-anchor="start" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">4</text>
+<path d="M901 315 L915 315" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="915,315 927,302 970,302 970,328 927,328" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="935" y="320" text-anchor="start" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">GND</text>
+<path d="M964 375 L986 375" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1028 375 L1050 375" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="986" y="366" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="1007" y="358" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R2</text>
+<text x="1007" y="405" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">330 Ω</text>
+<path d="M1050 375 L1284 375" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1310" y="325" width="96" height="118" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="1358" y="299" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J3</text>
+<text x="1358" y="315" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">WS2812 Strip 2</text>
+<rect x="1318" y="333" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1342" y="346" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 +5V</text>
+<path d="M1310 341 L1284 341" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1318" y="367" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1342" y="380" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 DIN</text>
+<path d="M1310 375 L1284 375" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1318" y="401" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1342" y="414" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">3 GND</text>
+<path d="M1310 409 L1284 409" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1284 341 L1240 341" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1240 341 L1240 325" fill="none" stroke="#b8341f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1240,315 1231,327 1249,327" fill="#b8341f"/>
+<text x="1240" y="307" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#b8341f" font-weight="700" font-style="normal">+5V</text>
+<path d="M1284 409 L1250 409" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1250 409 L1250 425" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1236 425 L1264 425" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1241 431 L1259 431" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1246 437 L1254 437" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="718" y="486" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#a2431a" font-weight="400" font-style="normal">Enable ist aktiv low: Pin 1, 4, 10 und 13 an GND. Unbenutzte Eingänge Pin 9 und 12 ebenfalls an GND — offene CMOS-Eingänge schwingen.</text>
+<text x="718" y="508" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">Ausgänge Pin 8 und 11 bleiben offen. C2 direkt an die Versorgungspins, nicht an den Platinenrand.</text>
+<rect x="700" y="556" width="960" height="760" rx="10" fill="#ffffff" stroke="#d9d4ca" stroke-width="1.5"/>
+<text x="718" y="584" text-anchor="start" font-size="16" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Geschaltete Ausgänge   ·   Low-Side, N-Kanal</text>
+<rect x="830" y="636" width="96" height="96" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="878" y="610" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J5</text>
+<text x="878" y="626" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">Lastversorgung</text>
+<rect x="838" y="644" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="862" y="657" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 VL_J5</text>
+<path d="M830 652 L804 652" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="838" y="684" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="862" y="697" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 GND</text>
+<path d="M830 692 L804 692" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M804 652 L790 652" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="790,652 778,639 713,639 713,665 778,665" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="770" y="657" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a6100" font-weight="700" font-style="normal">VL_J5</text>
+<path d="M804 692 L756 692 L756 726" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M756 726 L756 742" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M742 742 L770 742" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M747 748 L765 748" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M752 754 L760 754" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="800" y="758" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">+VL kommt über JP2 — aus J5 oder aus dem UBEC</text>
+<path d="M830 790 L816 790" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="816,790 804,777 750,777 750,803 804,803" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="796" y="795" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">REL1</text>
+<path d="M830 790 L852 790" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M852 790 L874 790" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M916 790 L938 790" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="874" y="781" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="895" y="773" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R3</text>
+<text x="895" y="820" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">100 Ω</text>
+<path d="M938 790 L960 790" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="960" cy="790" r="4" fill="#15171a"/>
+<path d="M960 790 L992 790" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M992 766 L992 814" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 766 L1004 780" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 783 L1004 797" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 800 L1004 814" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 773 L1038 773 L1038 734" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 807 L1038 807 L1038 846" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1038 790 L1004 790" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1004,790 1016,784 1016,796" fill="#15171a"/>
+<text x="1052" y="784" text-anchor="start" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">Q1</text>
+<text x="1052" y="800" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">AO3400A</text>
+<path d="M960 790 L960 813" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M960 813 L960 831" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M960 873 L960 891" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="951" y="831" width="18" height="42" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="976" y="849" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R4</text>
+<text x="976" y="865" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">100 k</text>
+<path d="M960 891 L1038 891" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1038 846 L1038 891" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M999 891 L999 907" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M985 907 L1013 907" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M990 913 L1008 913" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M995 919 L1003 919" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1038 734 L1038 720 L1304 720" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="1150" cy="720" r="4" fill="#15171a"/>
+<path d="M1150 720 L1150 714" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1150 646 L1150 668" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1150 714 L1150 692" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1136,692 1164,692 1150,668" fill="#fff" stroke="#15171a" stroke-width="2.2" stroke-linejoin="round"/>
+<path d="M1135 668 L1165 668" fill="none" stroke="#15171a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1172" y="676" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">D1</text>
+<text x="1172" y="692" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">SS14</text>
+<path d="M1150 646 L1150 628" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1150 628 L1136 628" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1136,628 1124,615 1081,615 1081,641 1124,641" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1116" y="633" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a6100" font-weight="700" font-style="normal">+VL</text>
+<rect x="1330" y="648" width="96" height="128" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="1378" y="622" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J6</text>
+<text x="1378" y="638" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">Last 1</text>
+<rect x="1338" y="656" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1362" y="669" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 +VL</text>
+<path d="M1330 664 L1304 664" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1338" y="712" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1362" y="725" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 Schaltausgang</text>
+<path d="M1330 720 L1304 720" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1304 664 L1290 664" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1290,664 1278,651 1235,651 1235,677 1278,677" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1270" y="669" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a6100" font-weight="700" font-style="normal">+VL</text>
+<path d="M830 1110 L816 1110" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="816,1110 804,1097 750,1097 750,1123 804,1123" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="796" y="1115" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">REL2</text>
+<path d="M830 1110 L852 1110" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M852 1110 L874 1110" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M916 1110 L938 1110" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="874" y="1101" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="895" y="1093" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R5</text>
+<text x="895" y="1140" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">100 Ω</text>
+<path d="M938 1110 L960 1110" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="960" cy="1110" r="4" fill="#15171a"/>
+<path d="M960 1110 L992 1110" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M992 1086 L992 1134" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 1086 L1004 1100" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 1103 L1004 1117" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 1120 L1004 1134" fill="none" stroke="#15171a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 1093 L1038 1093 L1038 1054" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1004 1127 L1038 1127 L1038 1166" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1038 1110 L1004 1110" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1004,1110 1016,1104 1016,1116" fill="#15171a"/>
+<text x="1052" y="1104" text-anchor="start" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">Q2</text>
+<text x="1052" y="1120" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">AO3400A</text>
+<path d="M960 1110 L960 1133" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M960 1133 L960 1151" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M960 1193 L960 1211" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="951" y="1151" width="18" height="42" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="976" y="1169" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R6</text>
+<text x="976" y="1185" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">100 k</text>
+<path d="M960 1211 L1038 1211" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1038 1166 L1038 1211" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M999 1211 L999 1227" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M985 1227 L1013 1227" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M990 1233 L1008 1233" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M995 1239 L1003 1239" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1038 1054 L1038 1040 L1304 1040" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="1150" cy="1040" r="4" fill="#15171a"/>
+<path d="M1150 1040 L1150 1034" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1150 966 L1150 988" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1150 1034 L1150 1012" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1136,1012 1164,1012 1150,988" fill="#fff" stroke="#15171a" stroke-width="2.2" stroke-linejoin="round"/>
+<path d="M1135 988 L1165 988" fill="none" stroke="#15171a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1172" y="996" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">D2</text>
+<text x="1172" y="1012" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">SS14</text>
+<path d="M1150 966 L1150 948" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1150 948 L1136 948" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1136,948 1124,935 1081,935 1081,961 1124,961" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1116" y="953" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a6100" font-weight="700" font-style="normal">+VL</text>
+<rect x="1330" y="968" width="96" height="128" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="1378" y="942" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J7</text>
+<text x="1378" y="958" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">Last 2</text>
+<rect x="1338" y="976" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1362" y="989" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 +VL</text>
+<path d="M1330 984 L1304 984" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1338" y="1032" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1362" y="1045" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 Schaltausgang</text>
+<path d="M1330 1040 L1304 1040" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1304 984 L1290 984" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1290,984 1278,971 1235,971 1235,997 1278,997" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1270" y="989" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a6100" font-weight="700" font-style="normal">+VL</text>
+<text x="718" y="1272" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#8a8377" font-weight="400" font-style="normal">D1/D2 nur bei induktiver Last bestücken (Relaisspule, Motor, Schütz). Die Masse der Last muss die Platinenmasse sein — es wird low-side geschaltet.</text>
+<text x="718" y="1294" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#a2431a" font-weight="400" font-style="normal">AO3400A hält 30 V. Hängt die Last an mehr als 4S, gehört ein FET mit höherer Sperrspannung hierhin.</text>
+<rect x="700" y="1346" width="960" height="290" rx="10" fill="#ffffff" stroke="#d9d4ca" stroke-width="1.5"/>
+<text x="718" y="1374" text-anchor="start" font-size="16" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#15171a" font-weight="700" font-style="normal">Empfänger</text>
+<rect x="1000" y="1406" width="96" height="148" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="1048" y="1380" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J4</text>
+<text x="1048" y="1396" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">SBUS</text>
+<rect x="1008" y="1414" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1032" y="1427" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 GND</text>
+<path d="M1000 1422 L974 1422" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1008" y="1458" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1032" y="1471" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 +5V_RC</text>
+<path d="M1000 1466 L974 1466" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1008" y="1502" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1032" y="1515" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">3 SIG</text>
+<path d="M1000 1510 L974 1510" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M974 1422 L760 1422 L760 1560" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M760 1560 L760 1576" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M746 1576 L774 1576" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M751 1582 L769 1582" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M756 1588 L764 1588" fill="none" stroke="#15171a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M974 1466 L960 1466" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="960,1466 948,1453 872,1453 872,1479 948,1479" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="940" y="1471" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">+5V_RC</text>
+<path d="M865 1510 L883 1510" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M925 1510 L943 1510" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="883" y="1501" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="904" y="1493" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R7</text>
+<text x="904" y="1540" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">1 k</text>
+<path d="M943 1510 L974 1510" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M865 1510 L851 1510" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="851,1510 839,1497 785,1497 785,1523 839,1523" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="831" y="1515" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">SBUS</text>
+<rect x="1400" y="1400" width="96" height="192" rx="4" fill="#fff" stroke="#15171a" stroke-width="2"/>
+<text x="1448" y="1374" text-anchor="middle" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">J8</text>
+<text x="1448" y="1390" text-anchor="middle" font-size="11" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#8a8377" font-weight="400" font-style="normal">PWM 1–4</text>
+<rect x="1408" y="1408" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1432" y="1421" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">1 SIG1</text>
+<path d="M1400 1416 L1374 1416" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1408" y="1452" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1432" y="1465" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">2 SIG2</text>
+<path d="M1400 1460 L1374 1460" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1408" y="1496" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1432" y="1509" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">3 SIG3</text>
+<path d="M1400 1504 L1374 1504" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1408" y="1540" width="16" height="16" fill="#fff" stroke="#15171a" stroke-width="1.6"/>
+<text x="1432" y="1553" text-anchor="start" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="400" font-style="normal">4 SIG4</text>
+<path d="M1400 1548 L1374 1548" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1265 1416 L1283 1416" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1325 1416 L1343 1416" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1283" y="1407" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="1304" y="1399" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R8</text>
+<path d="M1343 1416 L1374 1416" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1265 1416 L1251 1416" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1251,1416 1239,1403 1185,1403 1185,1429 1239,1429" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1231" y="1421" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM1</text>
+<path d="M1265 1460 L1283 1460" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1325 1460 L1343 1460" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1283" y="1451" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="1304" y="1443" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R9</text>
+<path d="M1343 1460 L1374 1460" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1265 1460 L1251 1460" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1251,1460 1239,1447 1185,1447 1185,1473 1239,1473" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1231" y="1465" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM2</text>
+<path d="M1265 1504 L1283 1504" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1325 1504 L1343 1504" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1283" y="1495" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="1304" y="1487" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R10</text>
+<path d="M1343 1504 L1374 1504" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1265 1504 L1251 1504" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1251,1504 1239,1491 1185,1491 1185,1517 1239,1517" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1231" y="1509" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM3</text>
+<path d="M1265 1548 L1283 1548" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1325 1548 L1343 1548" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="1283" y="1539" width="42" height="18" fill="#fff" stroke="#15171a" stroke-width="2" rx="2"/>
+<text x="1304" y="1531" text-anchor="middle" font-size="12" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#15171a" font-weight="700" font-style="normal">R11</text>
+<path d="M1343 1548 L1374 1548" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1265 1548 L1251 1548" fill="none" stroke="#15171a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="1251,1548 1239,1535 1185,1535 1185,1561 1239,1561" fill="#e9eff6" stroke="#5d7794" stroke-width="1.4"/>
+<text x="1231" y="1553" text-anchor="end" font-size="13" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" fill="#26384b" font-weight="700" font-style="normal">PWM4</text>
+<text x="718" y="1612" text-anchor="start" font-size="11" font-family="system-ui, 'DejaVu Sans', sans-serif" fill="#a2431a" font-weight="400" font-style="normal">R7–R11 je 1 k begrenzen den Strom, falls der Empfänger 5-V-Pegel ausgibt: die Pico-GPIOs sind nicht 5-V-fest. Masse des Empfängers an J4 Pin 1.</text>
+</svg>
