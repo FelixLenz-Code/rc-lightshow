@@ -17,7 +17,6 @@ der Beitrag der Funkstrecke ist.
 | Empfänger, gebunden | mit SBUS-Ausgang |
 | 3,5-mm-Klinkenkabel | Ring offen lassen |
 | 1 kΩ Widerstand | in die Signalleitung |
-| Jumperkabel | für den Referenzlauf GPIO2→GPIO10 |
 | 5-V-Versorgung (UBEC) | für den Pico im Modell, an VSYS |
 
 **Keinen USB-Seriell-Adapter.** Der Messmodus schaltet USB-Stdio ein — der Pico
@@ -59,16 +58,16 @@ Wert und sagt nichts dazu — an dieser Zahl sieht man Aussetzer trotzdem.
 
 ## Durchlauf A — Referenz ohne Funk
 
-Drahtbrücke von **GPIO2 nach GPIO10** an der Bodenstation. Kein Sender, kein
-Empfänger.
+> **Nicht mehr durchführbar.** Der Selbsttest-Eingang auf GPIO 10 ist am
+> 19.08.2026 entfernt worden, nachdem diese Messung ihr Ergebnis geliefert
+> hatte: **0 µs Eigenfehler**. Ein Messeingang, der einmal gebraucht wurde und
+> danach nur noch Pin und Code belegt, ist teurer als er nützt.
+>
+> Wer die Nulllinie erneut braucht, hängt ein Oszilloskop oder einen
+> Logikanalysator an GPIO 2 — das misst dasselbe, ohne dass die Bodenstation
+> ein zweites Gesicht dafür tragen muss.
 
-```bash
-cd host && ./.venv/bin/python -m lightshow --sweep eule
-```
-
-Der Selbsttest der Bodenstation meldet, was sie tatsächlich ausgibt. Das ist
-Deine Nulllinie: der Eigenfehler ohne Funk. Er sollte bei wenigen Mikrosekunden
-liegen.
+Was damals gemessen wurde, steht unten in der Liste unter Punkt 2.
 
 ## Durchlauf B — dieselbe Messung über die Luft
 
@@ -171,17 +170,13 @@ Stufe die vorherige voraussetzt.
        -> STAT-Zeile: crc_err=0, bad=0, cfg=1
 
 [x] 2  Referenzlauf ohne Funk           Ergebnis:   0   us Eigenfehler
-       Drahtbrücke GPIO2 -> GPIO10
-       ./.venv/bin/python -m lightshow --sweep eule
-       -> SELFTEST meldet idle, mark, frame passend zur Konfiguration
+       ERLEDIGT AM 17.08.2026 -- der Weg dorthin gibt es nicht mehr, siehe
+       oben. Festgehalten, weil die Zahl die Nulllinie fuer alles danach ist.
+       Drahtbruecke GPIO2 -> GPIO10, Selbsttest-Eingang, beides entfernt.
        gemessen: idle=low (normal) mark=400us frame=22500us nch=8
-       88 von 90 Stichproben exakt; die zwei Ausreißer (-5/-6 us) sind ein
-       Artefakt des Messeingangs -- dort steht auch mark=394/395us statt 400,
-       der ganze Rahmen liest kurz, nicht der Kanal.
-
-       ACHTUNG: --sweep gibt die SELFTEST-Zeilen nicht aus. run_sweep in
-       host/lightshow/__main__.py sammelt sie in link.status_lines ein und
-       verwirft sie. Diese Zahl stammt aus einem eigenen Skript.
+       88 von 90 Stichproben exakt; die zwei Ausreisser (-5/-6 us) waren ein
+       Artefakt des Messeingangs -- dort stand auch mark=394/395us statt 400,
+       der ganze Rahmen las kurz, nicht der Kanal.
 
 [x] 3  Messfirmware flashen
        ./.venv/bin/python -m lightshow --generate eule

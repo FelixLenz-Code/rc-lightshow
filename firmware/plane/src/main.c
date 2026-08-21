@@ -1,13 +1,13 @@
 // Airborne light controller.
 //
-// Reads four "data" channels per zone from the receiver -- cue, hue, brightness
-// and speed -- and generates the actual light pattern on board. The radio link
-// only carries about 45 updates per second with roughly 6 usable bits per
-// channel, which is plenty for fades and cue changes but not for strobes or
-// chases, so anything fast is generated here.
+// Reads the show state off the bus -- cue, hue, brightness and speed per zone
+// -- and generates the actual light pattern on board. The radio link only
+// carries about 28 frames per second with roughly 6 usable bits per channel,
+// which is plenty for fades and cue changes but not for strobes or chases, so
+// anything fast is generated here.
 //
-// Outputs are declared as tables in config.h: any number of WS2812 strips and
-// up to eight switched relay outputs, grouped into zones.
+// Outputs are declared as tables in config.h: WS2812 chains, the segments that
+// divide them between zones, and up to eight switched relay outputs.
 //
 // Navigation lights are drawn on top of every pattern and never switch off.
 
@@ -23,14 +23,12 @@
 #include "rc_input.h"
 
 #define decode_step(us, steps) rc_decode_step((us), RC_MIN_US, RC_MAX_US, (steps))
-#define decode_u8(us)          rc_decode_u8((us), RC_MIN_US, RC_MAX_US)
 
 static rgb_t s_pixels[MAX_ZONE_PIXELS];
 
-#if BUS_MODE
 #include "bus.h"
 
-// In bus mode a frame refreshes one zone, so the others have to be remembered
+// A frame refreshes one zone, so the others have to be remembered
 // between frames -- there is no channel holding them any more.
 static bus_zone_t s_zones[BUS_ZONES];
 static uint8_t    s_bus_relays;
@@ -87,7 +85,6 @@ static void bus_poll(const rc_state_t *rc) {
     s_bus_relays = frame.relays;
     s_all_off = false;
 }
-#endif
 
 int main(void) {
     stdio_init_all();
@@ -98,8 +95,8 @@ int main(void) {
 
     // Says which model this board is configured for. The pin assignment differs
     // between models, so flashing the wrong image is worth noticing early.
-    printf("\nlightshow plane: model=%s zones=%u strips=%u relays=%u\n",
-           PLANE_MODEL_NAME, ZONE_COUNT, STRIP_COUNT, RELAY_COUNT);
+    printf("\nlightshow plane: model=%s zones=%u outputs=%u segments=%u relays=%u\n",
+           PLANE_MODEL_NAME, ZONE_COUNT, OUTPUT_COUNT, SEGMENT_COUNT, RELAY_COUNT);
 #if MEASURE_MODE
     printf("MEASURE build: eine MEAS-Zeile je RC-Frame, %u Cue-Stufen, "
            "%u..%u us\n", CUE_STEPS, RC_MIN_US, RC_MAX_US);
@@ -120,24 +117,19 @@ int main(void) {
 
         if (!rc.valid) {
             outputs_relays_off();
-#if BUS_MODE
             // The link is gone; the remembered zone states are stale and must
             // not come back to life when it returns.
             bus_all_off();
-#endif
         }
 
-#if BUS_MODE
         bus_poll(&rc);
         outputs_set_bus_relays(s_bus_relays, s_all_off);
-#endif
 
         for (uint8_t zone = 0; zone < outputs_zone_count(); zone++) {
             uint16_t count = outputs_zone_pixels(zone);
             show_state_t show = {0};
 
             if (rc.valid) {
-#if BUS_MODE
                 // Nothing is decoded here: the zone's state came in on some
                 // earlier frame and has been held ever since.
                 show.cue = s_zones[zone].cue;
@@ -148,17 +140,7 @@ int main(void) {
                     show.cue = 0;
                     show.brightness = 0;
                 }
-#else
-                // Jede Zone sitzt an ihrem konfigurierten Platz im
-                // 16-Kanal-Rahmen.
-                uint8_t base = outputs_zone_base_channel(zone);
-                show.cue = decode_step(rc_channel_us(&rc, base), CUE_STEPS);
-                show.hue = decode_u8(rc_channel_us(&rc, base + 1));
-                show.brightness = decode_u8(rc_channel_us(&rc, base + 2));
-                show.param = decode_u8(rc_channel_us(&rc, base + 3));
-#endif
                 effects_render(&show, now_ms, s_pixels, count);
-                outputs_update_relays(zone, &show, s_pixels, &rc, now_ms);
             } else {
                 effects_render_failsafe(now_ms, s_pixels, count);
             }
@@ -168,6 +150,13 @@ int main(void) {
             if (zone == 0) last_logged = show;   // zone 0 stands in the status line
 #endif
         }
+
+        // Every chain is pushed once, after all zones have had their say -- a
+        // chain may carry pixels from more than one of them.
+        outputs_flush();
+        // One pass over the relays, in table order -- which is also bit order
+        // in the frame. Nothing about a zone reaches them.
+        if (rc.valid) outputs_update_relays(now_ms);
 
 #if MEASURE_MODE
         // One line per received RC frame with the raw microseconds, so the
@@ -184,7 +173,6 @@ int main(void) {
                    base + 2, rc_channel_us(&rc, base + 2),
                    base + 3, rc_channel_us(&rc, base + 3),
                    decode_step(rc_channel_us(&rc, base), CUE_STEPS));
-#if BUS_MODE
             // The raw channels above are code symbols and mean nothing on
             // their own. This is what the frame actually decoded to -- which
             // zone it addressed, what that zone now holds, and whether the
@@ -203,7 +191,6 @@ int main(void) {
                 printf(" %u", rc_channel_us(&rc, (uint8_t)(BUS_FIRST_CHANNEL + i)));
             }
             printf("\n");
-#endif
         }
 #else
         if (now_ms - last_log_ms >= 1000) {

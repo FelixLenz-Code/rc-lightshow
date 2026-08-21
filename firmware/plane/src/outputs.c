@@ -7,49 +7,54 @@
 #include "pico/stdlib.h"
 
 #include "config.h"
-#include "rc_decode.h"
 #include "relay_logic.h"
 #include "ws2812.pio.h"
 
-static const zone_cfg_t  s_zones[]  = ZONES;
+static const zone_cfg_t s_zones[] = ZONES;
 // A model may carry nothing but relays, and a table of zero elements is not
-// standard C -- so the strips follow the same pattern as the relays below.
-#if STRIP_COUNT > 0
-static const strip_cfg_t s_strips[] = STRIPS;
-#endif
-#if RELAY_COUNT > 0
-static const relay_cfg_t s_relays[] = RELAYS;
-static relay_state_t     s_relay_state[RELAY_COUNT];
+// standard C -- so every optional table is guarded the same way.
+#if OUTPUT_COUNT > 0
+static const output_cfg_t  s_outputs[]  = OUTPUTS;
+static const segment_cfg_t s_segments[] = SEGMENTS;
+
+// Every physical chain lives in one flat buffer; `first` says where each one
+// starts. Pixels no segment covers are never written and stay black, which is
+// what an unlit stretch of chain should be.
+static rgb_t s_frame[OUTPUT_PIXEL_TOTAL];
+
+// One PIO state machine per chain: pio0 takes the first four, pio1 the rest.
+static PIO  s_output_pio[OUTPUT_COUNT];
+static uint s_output_sm[OUTPUT_COUNT];
 #endif
 #if NAV_COUNT > 0
 static const nav_light_t s_nav[] = NAV_LIGHTS;
 #endif
 
-// One PIO state machine per strip: pio0 takes the first four, pio1 the rest.
-#if STRIP_COUNT > 0
-static PIO  s_strip_pio[STRIP_COUNT];
-static uint s_strip_sm[STRIP_COUNT];
+#if RELAY_COUNT > 0
+static const relay_cfg_t s_relays[] = RELAYS;
+static relay_state_t     s_relay_state[RELAY_COUNT];
 #endif
 
-_Static_assert(ZONE_COUNT  <= MAX_ZONES,  "too many zones");
-_Static_assert(STRIP_COUNT <= MAX_STRIPS, "too many strips, only 8 PIO state machines exist");
-_Static_assert(RELAY_COUNT <= MAX_RELAYS, "too many relays");
-_Static_assert(NAV_COUNT   <= MAX_NAV_LIGHTS, "too many navigation lights");
+_Static_assert(ZONE_COUNT    <= MAX_ZONES,    "too many zones");
+_Static_assert(OUTPUT_COUNT  <= MAX_OUTPUTS,  "too many LED outputs, only 8 PIO state machines exist");
+_Static_assert(SEGMENT_COUNT <= MAX_SEGMENTS, "too many segments");
+_Static_assert(RELAY_COUNT   <= MAX_RELAYS,   "too many relays");
+_Static_assert(NAV_COUNT     <= MAX_NAV_LIGHTS, "too many navigation lights");
 
 void outputs_init(void) {
-#if STRIP_COUNT > 0
+#if OUTPUT_COUNT > 0
     int offset[2] = {-1, -1};
 
-    for (uint8_t i = 0; i < STRIP_COUNT; i++) {
+    for (uint8_t i = 0; i < OUTPUT_COUNT; i++) {
         PIO pio = i < 4 ? pio0 : pio1;
         uint block = i < 4 ? 0u : 1u;
         if (offset[block] < 0) {
             offset[block] = (int)pio_add_program(pio, &ws2812_program);
         }
-        s_strip_pio[i] = pio;
-        s_strip_sm[i] = i % 4;
-        pio_sm_claim(pio, s_strip_sm[i]);
-        ws2812_program_init(pio, s_strip_sm[i], (uint)offset[block], s_strips[i].pin);
+        s_output_pio[i] = pio;
+        s_output_sm[i] = i % 4;
+        pio_sm_claim(pio, s_output_sm[i]);
+        ws2812_program_init(pio, s_output_sm[i], (uint)offset[block], s_outputs[i].pin);
     }
 #endif
 
@@ -67,10 +72,10 @@ void outputs_init(void) {
 
 uint16_t outputs_zone_pixels(uint8_t zone) {
     uint16_t needed = 0;
-#if STRIP_COUNT > 0
-    for (uint8_t i = 0; i < STRIP_COUNT; i++) {
-        if (s_strips[i].zone != zone) continue;
-        uint16_t end = (uint16_t)(s_strips[i].offset + s_strips[i].count);
+#if OUTPUT_COUNT > 0
+    for (uint8_t i = 0; i < SEGMENT_COUNT; i++) {
+        if (s_segments[i].zone != zone) continue;
+        uint16_t end = (uint16_t)(s_segments[i].offset + s_segments[i].count);
         if (end > needed) needed = end;
     }
 #else
@@ -79,55 +84,53 @@ uint16_t outputs_zone_pixels(uint8_t zone) {
     return needed > MAX_ZONE_PIXELS ? MAX_ZONE_PIXELS : needed;
 }
 
-#if STRIP_COUNT > 0
-// Navigation lights win over whatever the effect produced.
-static bool nav_colour(uint8_t strip, uint16_t index, rgb_t *out) {
-#if NAV_COUNT > 0
-    for (uint8_t n = 0; n < NAV_COUNT; n++) {
-        if (s_nav[n].strip == strip && s_nav[n].index == index) {
-            out->r = effects_gamma(s_nav[n].r);
-            out->g = effects_gamma(s_nav[n].g);
-            out->b = effects_gamma(s_nav[n].b);
-            return true;
-        }
-    }
-#else
-    (void)strip;
-    (void)index;
-    (void)out;
-#endif
-    return false;
-}
-#endif // STRIP_COUNT > 0
-
 void outputs_show(uint8_t zone, const rgb_t *pixels) {
-#if STRIP_COUNT == 0
+#if OUTPUT_COUNT == 0
     (void)zone; (void)pixels;
 #else
     uint16_t available = outputs_zone_pixels(zone);
 
-    for (uint8_t i = 0; i < STRIP_COUNT; i++) {
-        const strip_cfg_t *strip = &s_strips[i];
-        if (strip->zone != zone) continue;
+    for (uint8_t i = 0; i < SEGMENT_COUNT; i++) {
+        const segment_cfg_t *seg = &s_segments[i];
+        if (seg->zone != zone) continue;
 
-        for (uint16_t p = 0; p < strip->count; p++) {
-            uint16_t source = strip->reverse ? (uint16_t)(strip->count - 1u - p) : p;
-            source = (uint16_t)(strip->offset + source);
-
-            rgb_t colour = source < available ? pixels[source] : (rgb_t){0, 0, 0};
-            nav_colour(i, p, &colour);
-
-            uint32_t grb = ((uint32_t)colour.g << 16) | ((uint32_t)colour.r << 8) |
-                           (uint32_t)colour.b;
-            pio_sm_put_blocking(s_strip_pio[i], s_strip_sm[i], grb << 8u);
+        rgb_t *chain = &s_frame[s_outputs[seg->output].first + seg->start];
+        for (uint16_t p = 0; p < seg->count; p++) {
+            uint16_t source = seg->reverse ? (uint16_t)(seg->count - 1u - p) : p;
+            source = (uint16_t)(seg->offset + source);
+            chain[p] = source < available ? pixels[source] : (rgb_t){0, 0, 0};
         }
     }
 #endif
 }
 
-// What the last bus frame said about the directly switched relays. Kept here
-// rather than passed through outputs_update_relays so the classic build and
-// the bus build share one signature.
+void outputs_flush(void) {
+#if OUTPUT_COUNT > 0
+    // Navigation lights win over whatever the effects produced. Stamping them
+    // into the buffer costs one pass over the table rather than a lookup per
+    // pixel, and it puts them on chains no zone covers just as readily.
+#if NAV_COUNT > 0
+    for (uint8_t n = 0; n < NAV_COUNT; n++) {
+        const nav_light_t *nav = &s_nav[n];
+        if (nav->index >= s_outputs[nav->output].count) continue;
+        s_frame[s_outputs[nav->output].first + nav->index] = (rgb_t){
+            effects_gamma(nav->r), effects_gamma(nav->g), effects_gamma(nav->b),
+        };
+    }
+#endif
+
+    for (uint8_t i = 0; i < OUTPUT_COUNT; i++) {
+        const rgb_t *chain = &s_frame[s_outputs[i].first];
+        for (uint16_t p = 0; p < s_outputs[i].count; p++) {
+            uint32_t grb = ((uint32_t)chain[p].g << 16) |
+                           ((uint32_t)chain[p].r << 8) | (uint32_t)chain[p].b;
+            pio_sm_put_blocking(s_output_pio[i], s_output_sm[i], grb << 8u);
+        }
+    }
+#endif
+}
+
+// What the last bus frame said about the directly switched relays.
 static uint8_t s_bus_relays;
 static bool    s_bus_all_off;
 
@@ -136,53 +139,23 @@ void outputs_set_bus_relays(uint8_t bitmap, bool all_off) {
     s_bus_all_off = all_off;
 }
 
+void outputs_update_relays(uint32_t now_ms) {
 #if RELAY_COUNT > 0
-// Collects everything relay_wants() needs; the decision itself lives in
-// relay_logic.h so it can be tested without hardware.
-static relay_inputs_t gather(const relay_cfg_t *relay, const show_state_t *show,
-                             const rgb_t *pixels, uint16_t pixel_count,
-                             const rc_state_t *rc) {
-    relay_inputs_t in = {
-        .cue = show->cue,
-        .brightness = show->brightness,
-        .pixel_level = 0,
-        .channel_level = 0,
-        .pixel_valid = false,
-        .bus_on = (s_bus_relays >> (relay->arg & 7u)) & 1u,
-        .all_off = s_bus_all_off,
-    };
-
-    if (relay->arg < pixel_count) {
-        const rgb_t *p = &pixels[relay->arg];
-        uint8_t level = p->r > p->g ? p->r : p->g;
-        if (p->b > level) level = p->b;
-        in.pixel_level = level;
-        in.pixel_valid = true;
-    }
-    in.channel_level = rc_decode_u8(rc_channel_us(rc, (uint8_t)relay->arg),
-                                    RC_MIN_US, RC_MAX_US);
-    return in;
-}
-#endif
-
-void outputs_update_relays(uint8_t zone, const show_state_t *show,
-                           const rgb_t *pixels, const rc_state_t *rc,
-                           uint32_t now_ms) {
-#if RELAY_COUNT > 0
-    uint16_t pixel_count = outputs_zone_pixels(zone);
-
     for (uint8_t i = 0; i < RELAY_COUNT; i++) {
-        if (s_relays[i].zone != zone) continue;
+        const relay_cfg_t *relay = &s_relays[i];
+        // Position in the table is the bit in the frame; nothing has to be
+        // looked up, and nothing can point at the wrong slot.
+        relay_inputs_t in = {
+            .bus_on = (s_bus_relays >> (i & 7u)) & 1u,
+            .all_off = s_bus_all_off,
+        };
 
-        relay_inputs_t in = gather(&s_relays[i], show, pixels, pixel_count, rc);
-        bool want = relay_wants(s_relays[i].source, s_relays[i].arg,
-                                s_relays[i].threshold, &in);
-        bool state = relay_step(&s_relay_state[i], want, now_ms,
-                                s_relays[i].min_on_ms, s_relays[i].min_off_ms);
-        gpio_put(s_relays[i].pin, relay_pin_level(state, s_relays[i].active_low));
+        bool state = relay_step(&s_relay_state[i], relay_wants(&in), now_ms,
+                                relay->min_on_ms, relay->min_off_ms);
+        gpio_put(relay->pin, relay_pin_level(state, relay->active_low));
     }
 #else
-    (void)zone; (void)show; (void)pixels; (void)rc; (void)now_ms;
+    (void)now_ms;
 #endif
 }
 
@@ -200,7 +173,9 @@ void outputs_relays_off(void) {
 
 uint8_t outputs_zone_count(void) { return ZONE_COUNT; }
 
-// Base RC channel of a zone, used by main.c.
+// Base RC channel of a zone. In bus mode no zone owns channels of its own; the
+// generator writes the bus's first channel here, which is what the measure
+// build wants to print.
 uint8_t outputs_zone_base_channel(uint8_t zone) {
     return zone < ZONE_COUNT ? s_zones[zone].base_channel : 1;
 }

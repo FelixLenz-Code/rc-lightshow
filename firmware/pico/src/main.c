@@ -14,7 +14,6 @@
 #include "link.h"
 #include "ports.h"
 #include "protocol.h"
-#include "selftest.h"
 
 #define STATUS_INTERVAL_MS 1000
 
@@ -44,7 +43,6 @@ int main(void) {
 
     link_init();
     apply_boot_defaults();
-    selftest_init();
 
     absolute_time_t last_frame = get_absolute_time();
     absolute_time_t last_status = get_absolute_time();
@@ -79,12 +77,6 @@ int main(void) {
                    (unsigned long)s->frames_ok, (unsigned long)s->crc_errors,
                    (unsigned long)s->bad_frames, (unsigned long)s->seq_gaps,
                    (unsigned long)s->config_count);
-
-            // Only speaks up when something is wired to the self-test pin.
-            char report[256];
-            if (selftest_report(report, sizeof(report))) {
-                printf("%s\n", report);
-            }
         }
 
         tight_loop_contents();

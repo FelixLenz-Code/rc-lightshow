@@ -4,11 +4,9 @@
 //       stdin:  "<time_ms> <want>" per line
 //       stdout: "<time_ms> <state>" per line
 //
-//   relay_sim want <source> <arg> <threshold>
-//       stdin:  "<cue> <brightness> <pixel_level> <channel_level> <pixel_valid>"
+//   relay_sim want
+//       stdin:  "<bus_on> <all_off>" per line
 //       stdout: "<want>" per line
-//
-// source: 0 pixel, 1 brightness, 2 cue, 3 channel
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,22 +29,11 @@ static int run_step(int argc, char **argv) {
     return 0;
 }
 
-static int run_want(int argc, char **argv) {
-    if (argc < 5) return 2;
-    relay_source_t source = (relay_source_t)atoi(argv[2]);
-    uint16_t arg = (uint16_t)atoi(argv[3]);
-    uint8_t threshold = (uint8_t)atoi(argv[4]);
-
-    int cue, brightness, pixel, channel, valid;
-    while (scanf("%d %d %d %d %d", &cue, &brightness, &pixel, &channel, &valid) == 5) {
-        relay_inputs_t in = {
-            .cue = (uint8_t)cue,
-            .brightness = (uint8_t)brightness,
-            .pixel_level = (uint8_t)pixel,
-            .channel_level = (uint8_t)channel,
-            .pixel_valid = valid != 0,
-        };
-        printf("%d\n", relay_wants(source, arg, threshold, &in) ? 1 : 0);
+static int run_want(void) {
+    int bus_on, all_off;
+    while (scanf("%d %d", &bus_on, &all_off) == 2) {
+        relay_inputs_t in = {.bus_on = bus_on != 0, .all_off = all_off != 0};
+        printf("%d\n", relay_wants(&in) ? 1 : 0);
     }
     return 0;
 }
@@ -64,10 +51,10 @@ static int run_pin(int argc, char **argv) {
 
 int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "step") == 0) return run_step(argc, argv);
-    if (argc >= 2 && strcmp(argv[1], "want") == 0) return run_want(argc, argv);
+    if (argc >= 2 && strcmp(argv[1], "want") == 0) return run_want();
     if (argc >= 2 && strcmp(argv[1], "pin") == 0) return run_pin(argc, argv);
     fprintf(stderr, "usage: relay_sim step <min_on> <min_off>\n"
-                    "       relay_sim want <source> <arg> <threshold>\n"
+                    "       relay_sim want\n"
                     "       relay_sim pin <active_low>\n");
     return 2;
 }

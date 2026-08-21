@@ -1,26 +1,37 @@
-# Bus-Modus
+# Der Bus
 
-Normal trägt eine Zone vier eigene RC-Kanäle — Effekt, Farbe, Helligkeit, Tempo.
-Acht Kanäle sind damit zwei Zonen, und mehr geht nicht.
+Jedes Modell belegt **acht RC-Kanäle**, und die acht tragen **einen codierten
+Rahmen**: eine Zonenadresse, den Zustand dieser Zone, und ein Bit je direkt
+geschaltetem Relais. Die Zonen kommen reihum dran, eine je RC-Rahmen. So bekommt
+ein Modell mehr Zonen als es Kanäle hat — bezahlt wird in **Wartezeit**, nicht in
+Kanälen.
 
-Im Bus-Modus tragen dieselben acht Kanäle **einen codierten Rahmen**: eine
-Zonenadresse, den Zustand dieser Zone, und ein Bit je direkt geschaltetem
-Relais. Die Zonen kommen reihum dran, eine je RC-Rahmen. So bekommt ein Modell
-mehr Zonen als es Kanäle hat — bezahlt wird in **Wartezeit**, nicht in Kanälen.
+## Warum es nur noch diesen Weg gibt
 
-## Wann er sich lohnt
+Früher gab es daneben den schlichten Weg: eine Zone trägt vier eigene Kanäle,
+acht Kanäle sind zwei Zonen, fertig. Der ist ersatzlos entfallen.
 
-| | ohne Bus | mit Bus |
+| | schlichte Kanäle | Bus |
 |---|---|---|
-| Zonen bei 8 freien Kanälen | 2 | bis 8 |
+| Zonen bei 8 Kanälen | 2 | bis 8 |
 | Aktualisierung je Zone | jeder Rahmen | jeder n-te Rahmen |
 | Relais unabhängig schaltbar | nein | ja, je eins pro Bit |
 | Fremde Rahmen erkannt | nein | ja, siehe unten |
 
-Ein Relais, das ohnehin einem Effekt folgen soll (`pixel`, `brightness`, `cue`),
-braucht den Bus **nicht** — es wird an Bord aus dem Zonenzustand abgeleitet und
-kostet nichts über die Luft. Bits kostet nur, was unabhängig von der Zone
-geschaltet werden soll.
+Der schlichte Weg konnte in drei von vier Zeilen das nicht, was gebraucht wird.
+Zwei Wege offenzuhalten hieß, dass jede Regel dahinter zwei Antworten hatte —
+und dass eine Einstellung existierte, die man falsch treffen konnte, ohne dass
+irgendwo etwas falsch aussah. `BUS_MODE` ist deshalb kein Makro mehr, sondern
+die einzige Bauart der Bordfirmware.
+
+Was das kostet, steht ehrlich in der Tabelle: eine einzelne Zone wird jetzt auch
+nur alle 35,5 ms aktualisiert statt in jedem Rahmen. Bei einer Zone ist das
+derselbe Rahmen — die Rotation hat dann nichts zu rotieren.
+
+**Jedes** Relais kostet ein Bit. Früher konnte eines seinen Zustand stattdessen
+an Bord ableiten — aus einem Pixel, dem Master-Dimmer oder einer Cue-Nummer —
+und war dafür gratis; auch dieser Weg ist entfallen. Damit gilt die Regel
+`R + A ≤ 4` für alle Relais eines Modells, nicht nur für einen Teil.
 
 ## Wie der Rahmen aussieht
 
@@ -138,34 +149,41 @@ die Sendekanäle 9–16 gelegt, und genau darauf beruht die Konfiguration.
 
 ## Einrichten
 
-In der Web-Oberfläche unter **Modelle**: der Abschnitt *Bus-Modus* zeigt eine
+In der Web-Oberfläche unter **Modelle**: **＋ Neues Modell**, oder
+**Bearbeiten** an einem vorhandenen — beides führt in denselben Wizard, der
+einzige Ort, an dem ein Modell eingestellt wird. Im Schritt *Zonen* steht eine
 Matrix mit Zonen nach unten und Bus-Relais nach rechts, in den Feldern die
 Wartezeit je Zone. Blass heißt: langsamer als `bus_latency_limit_ms` (Vorgabe
 150 ms). Verboten ist nichts — die Entscheidung bleibt beim Menschen.
-
-Für ein neues Modell führt der Wizard (**＋ Neues Modell**) durch Fernsteuerung,
-Zonen, LED-Ausgänge und Relais und legt dieselbe Matrix im zweiten Schritt vor.
 
 In `show.yaml` sieht es so aus:
 
 ```yaml
   - name: eule
     tx_offset: 8
+    # `bus` darf ganz fehlen -- dann hat das Modell keine Relais. Ein
+    # `enabled: false` wird abgewiesen: den Modus gibt es nicht mehr.
     bus:
-      enabled: true
-      relays:
+      relays:                      # die Drahtseite: Bit und Control-Change
         - {name: rauch, cc: 100}
         - {name: blitz, cc: 101}
     channels:
       # vier je Zone, so viele Gruppen wie Zonen
     plane:
-      relays:
-        # `arg` ist der Steckplatz in bus.relays, nicht ein Pixel oder Cue
-        - {name: rauch, pin: 7, source: bus, arg: 0, active_low: true}
+      relays:                      # die Bordseite, in derselben Reihenfolge
+        - {name: rauch, pin: 7, active_low: true, min_on_ms: 200, min_off_ms: 200}
+        - {name: blitz, pin: 8, active_low: false}
 ```
 
-Ein Bus-Relais wird über seinen eigenen Control-Change geschaltet: ab 64 an,
-darunter aus.
+Die beiden Listen sind zwei Hälften desselben Relais und werden **über die
+Position** verknüpft — es gibt keine Steckplatznummer, die danebenliegen könnte.
+Ungleich lang heißt: ein Bit, das nichts schaltet, oder ein Pin, den nichts
+erreicht. Verschiedene Namen an derselben Stelle heißt: die Listen sind aus dem
+Tritt geraten und würden das falsche Gerät schalten. Die Prüfung weist beides ab.
+
+Ein Relais wird über seinen eigenen Control-Change geschaltet: ab 64 an,
+darunter aus. Aus einer laufenden Show heraus macht das die **Relaisspur** im
+Editor, siehe [show-editor.md](show-editor.md).
 
 ## Was die Wartezeit wirklich ist
 
@@ -225,6 +243,9 @@ Was dafür nötig wäre, Stand 17.08.2026, recherchiert in den FrSky-Quellen:
   `ports_set_channels()` sperrt den DMA-Interrupt, während es die acht Werte
   schreibt. Sonst könnte ein Rahmen halb alte und halb neue Symbole enthalten —
   zwei falsche Symbole, einer zu viel.
-- **`RELAY_SRC_CHANNEL` ergibt im Bus-Modus keinen Sinn**: es gibt keine
-  schlichten RC-Kanäle mehr, die acht sind Codewort. Die Prüfung lässt es
-  stehen, aber der Wert wäre Unsinn.
+- **Relais gehen nur über den Bus.** Die Quellen, die den Zustand an Bord
+  ableiteten — Pixel, Master-Dimmer, Cue-Nummer, roher RC-Kanal — sind entfallen.
+  Sie kosteten keine Bits, banden aber jedes Relais an etwas anderes, das gerade
+  lief. Das Bitbudget ist damit die harte Grenze für die Zahl der Relais, und ein
+  Relais, das im Strobetakt blitzt, gibt es nicht mehr: ein Bit ist ein Zustand,
+  kein Muster.

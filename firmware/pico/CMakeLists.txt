@@ -14,7 +14,6 @@ add_executable(lightshow_tx
     src/link.c
     src/ports.c
     src/crc16.c
-    src/selftest.c
 )
 
 pico_generate_pio_header(lightshow_tx ${CMAKE_CURRENT_LIST_DIR}/src/ppm.pio)
