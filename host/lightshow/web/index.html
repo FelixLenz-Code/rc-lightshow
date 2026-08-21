@@ -22,17 +22,22 @@
       </svg>
     </div>
 
+    <!-- Show first: it is where the evening is spent, and the one tab that is
+         opened without having decided to go anywhere. The rest keep the order
+         the work runs in -- a show is a project, a project is for models, the
+         firmware follows from them, and the stage is what you watch while it
+         plays. -->
     <nav role="tablist">
       <button class="nav" role="tab" data-view="show" aria-selected="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round"><path d="M3 6h11M3 12h18M3 18h7"/><circle cx="18" cy="6" r="2"/><circle cx="13" cy="18" r="2"/></svg>
         Show
       </button>
-      <button class="nav" role="tab" data-view="stage" aria-selected="false">
+      <button class="nav" role="tab" data-view="projects" aria-selected="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 18h6M10 21h4M12 2a6.5 6.5 0 0 1 4 11.6V16H8v-2.4A6.5 6.5 0 0 1 12 2z"/></svg>
-        Bühne
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        Projekte
       </button>
       <button class="nav" role="tab" data-view="models" aria-selected="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -41,11 +46,20 @@
         Modelle
       </button>
       <button class="nav" role="tab" data-view="wiring" aria-selected="false">
+        <!-- A chip with an arrow going into it: this page puts something on a
+             board, which is the one thing it does. -->
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
-          <rect x="7" y="7" width="10" height="10" rx="2"/>
-          <path d="M10 7V3M14 7V3M10 21v-4M14 21v-4M7 10H3M7 14H3M21 10h-4M21 14h-4"/></svg>
-        Anschluss
+          <rect x="6" y="6" width="12" height="12" rx="2"/>
+          <path d="M9 6V3M15 6V3M9 21v-3M15 21v-3M6 9H3M6 15H3M21 9h-3M21 15h-3"/>
+          <path d="M12 9v4.5M10 12l2 2.2 2-2.2"/></svg>
+        Flashen
+      </button>
+      <button class="nav" role="tab" data-view="stage" aria-selected="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18h6M10 21h4M12 2a6.5 6.5 0 0 1 4 11.6V16H8v-2.4A6.5 6.5 0 0 1 12 2z"/></svg>
+        Bühne
       </button>
     </nav>
 
@@ -60,6 +74,12 @@
           <circle cx="12" cy="18.5" r="1.1" fill="currentColor" stroke="none"/>
           <circle cx="12" cy="12" r="9.5"/></svg>
       </button>
+      <button id="btn-quit" class="quit" title="Bridge ausschalten"
+              aria-label="Bridge ausschalten">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round"><path d="M12 3v9"/>
+          <path d="M7.1 6.6a8 8 0 1 0 9.8 0"/></svg>
+      </button>
     </div>
   </aside>
 
@@ -67,17 +87,22 @@
   <div class="main">
 
     <div class="topbar">
-      <span class="stat"><i class="led" id="led-midi"></i><span id="txt-midi">DAW</span></span>
       <span class="stat"><i class="led" id="led-pico"></i><span id="txt-pico">Bodenstation</span></span>
       <span class="stat"><span class="k">Takt</span><b id="txt-rate">—</b></span>
 
       <span class="grow"></span>
 
-      <span class="row" id="project-bar" style="gap:6px">
-        <select id="project-select" title="Projekt öffnen" style="max-width:180px"></select>
-        <button id="btn-project-open" class="quiet">Öffnen</button>
-        <button id="btn-project-new" class="quiet" title="Neues Projekt anlegen">Neu</button>
-        <button id="btn-project-save" class="primary" title="Strg+S">Speichern</button>
+      <!-- No buttons any more: the timeline writes itself after every change,
+           and opening or creating a project is what the Projekte tab is for.
+           What is left is the one thing this bar could always answer better
+           than anything else -- which show is on the screen. -->
+      <span class="row" id="project-bar" style="gap:8px">
+        <span class="lbl" style="margin:0">Projekt</span>
+        <b id="project-name" style="font-size:13px">—</b>
+        <span id="project-state" class="dim" style="font-size:11.5px"></span>
+        <button id="btn-project-close" class="quiet hidden"
+          title="Projekt schließen — die Lichter gehen danach in den Ruhezustand">
+          Schließen</button>
       </span>
 
       <button class="blackout" id="btn-blackout" aria-pressed="false" title="Alles sofort auf Failsafe (B)">
@@ -117,6 +142,7 @@
             <button id="btn-zoom-fit" title="Ganze Show einpassen">⤢</button>
           </span>
           <button id="btn-snap" aria-pressed="true" title="Am Raster einrasten — Alt hält es frei">Raster</button>
+          <button id="btn-preview" title="Eigenes Fenster: was die LED-Ketten am Modell zeigen würden">Vorschau ↗</button>
         </div>
 
         <div class="tl" id="tl">
@@ -125,6 +151,7 @@
               <span class="lbl2">Spuren</span>
               <button class="tiny" id="btn-add-audio" title="Audiospur hinzufügen">+A</button>
               <button class="tiny" id="btn-add-light" title="Lichtspur hinzufügen">+L</button>
+              <button class="tiny" id="btn-add-relay" title="Relaisspur hinzufügen">+R</button>
             </div>
             <div class="tl-ruler" id="tl-ruler"></div>
             <div class="tl-heads" id="tl-heads"></div>
@@ -143,6 +170,28 @@
     </div>
 
     <!-- ============================================================= Bühne -->
+    <!-- ========================================================== Projekte -->
+    <div class="view hidden" id="view-projects">
+      <div class="pad">
+        <h1 class="title">Projekte</h1>
+        <p class="subtitle">Ein Projekt ist eine Show: die Musik, die Lichtspuren
+          und die Relaisspuren für die Flugzeuge, die dabei fliegen. Welche das
+          sind, wird beim Anlegen gewählt — eingerichtet werden die Modelle
+          vorher unter <b>Modelle</b>.</p>
+        <div class="row" style="margin-bottom:14px">
+          <button id="btn-project-create" class="primary">＋ Neues Projekt</button>
+          <button id="btn-project-import" class="quiet"
+            title="Ein exportiertes Projekt einlesen">Importieren …</button>
+          <input type="file" id="file-project" accept=".zip" class="hidden">
+          <span class="dim" style="font-size:12px">Fragt nach einem Namen und
+            den Modellen und legt für jede Zone und jedes Relais eine Spur an.
+            <b>Öffnen</b> an einer Karte holt ein Projekt in den Reiter
+            <b>Show</b>; Änderungen dort werden sofort gespeichert.</span>
+        </div>
+        <div id="projects"></div>
+      </div>
+    </div>
+
     <div class="view hidden" id="view-stage">
       <div class="pad">
         <h1 class="title">Bühne</h1>
@@ -166,13 +215,18 @@
         <div id="lock-note" class="note warn hidden"></div>
         <div class="row" style="margin-bottom:14px">
           <button id="btn-wizard" class="primary">＋ Neues Modell</button>
-          <span class="dim" style="font-size:12px">Führt durch Fernsteuerung, Zonen,
-            LED-Ausgänge und Relais.</span>
+          <button id="btn-model-import" class="quiet"
+            title="Ein exportiertes Modell einlesen">Importieren …</button>
+          <input type="file" id="file-model" accept=".json,.yaml,.yml" class="hidden">
+          <span class="dim" style="font-size:12px">Führt durch Bauart,
+            Fernsteuerung, Zonen, LED-Ausgänge, Relais und Positionslichter.
+            <b>Bearbeiten</b> an einem Modell öffnet denselben Weg noch einmal.
+            Anlegen, Ändern und Entfernen werden <b>sofort gespeichert</b> und
+            von der Bridge übernommen — nur die Bordfirmware muss danach noch
+            neu generiert und geflasht werden.</span>
         </div>
         <div id="models"></div>
         <div class="row" style="margin-top:16px">
-          <button id="btn-config-save" class="primary">Speichern</button>
-          <button id="btn-config-reload" class="quiet">Verwerfen und neu laden</button>
           <span class="grow"></span>
           <span class="dim" style="font-size:12px" id="config-path"></span>
         </div>
@@ -181,26 +235,57 @@
     </div>
 
     <!-- ========================================================= Anschluss -->
+    <!-- ========================================================== Flashen -->
     <div class="view hidden" id="view-wiring">
       <div class="pad">
-        <h1 class="title">Anschluss</h1>
-        <p class="subtitle">Was im Rumpf wohin gelötet wird, und der Weg von hier bis
-          zur fertigen Firmware auf dem Board.</p>
+        <h1 class="title">Flashen</h1>
+        <p class="subtitle">Aus der Konfiguration wird eine <code>config.h</code>,
+          daraus eine <code>.uf2</code>, und die kommt auf das Board. Zwei Boards
+          gibt es: das im Flugzeug und die Bodenstation am Sender.</p>
 
-        <div class="row" style="margin-bottom:16px">
-          <select id="wiring-model" style="min-width:180px"></select>
-          <button id="btn-write" class="primary">config.h schreiben</button>
-          <span class="grow"></span>
-          <button id="btn-build-plane">Bordfirmware bauen</button>
-          <button id="btn-flash-plane">Aufspielen</button>
-          <span style="width:8px"></span>
-          <button id="btn-build-ground" class="quiet">Bodenstation bauen</button>
-          <button id="btn-flash-ground" class="quiet">Aufspielen</button>
+        <div id="toolchain" class="note hidden"></div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head">
+            <h2>Bordfirmware</h2>
+            <span class="dim" style="font-size:12px">je Modell eine eigene</span>
+            <span class="grow"></span>
+            <select id="wiring-model" style="min-width:180px"></select>
+          </div>
+          <div class="card-body">
+            <p class="dim" style="margin:0 0 12px;font-size:12.5px">Die drei
+              Schritte in der Reihenfolge, in der sie aufeinander aufbauen. Nach
+              jeder Änderung an einem Modell fängt es wieder bei
+              <b>1</b> an — was auf dem Board liegt, weiß nichts von der
+              Konfiguration hier.</p>
+            <div class="row">
+              <button id="btn-write" class="primary">1 · config.h schreiben</button>
+              <button id="btn-build-plane">2 · Bauen</button>
+              <button id="btn-flash-plane">3 · Aufspielen</button>
+              <span class="grow"></span>
+              <span class="dim" style="font-size:12px" id="plane-target"></span>
+            </div>
+            <div id="write-note" class="hidden" style="margin-top:12px"></div>
+          </div>
         </div>
 
-        <div id="write-note" class="hidden"></div>
-        <div id="toolchain" class="note hidden"></div>
-        <p class="dim" style="font-size:12px;margin:0" id="bootsel"></p>
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head">
+            <h2>Bodenstation</h2>
+            <span class="dim" style="font-size:12px">der Pico am Sender, einer für alle Modelle</span>
+          </div>
+          <div class="card-body">
+            <p class="dim" style="margin:0 0 12px;font-size:12.5px">Hängt nicht am
+              Modell: sie baut aus den Kanälen Rahmen und weiß von Zonen nichts.
+              Neu aufspielen nur, wenn sich die Firmware selbst geändert hat.</p>
+            <div class="row">
+              <button id="btn-build-ground" class="quiet">Bauen</button>
+              <button id="btn-flash-ground" class="quiet">Aufspielen</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="dim" style="font-size:12px;margin:0 0 12px" id="bootsel"></p>
         <pre id="job-log" class="log hidden"></pre>
 
         <div id="wiring-out" style="margin-top:16px"></div>
@@ -212,12 +297,20 @@
 
 <div id="toasts"></div>
 
+<!-- Der Inhalt entsteht beim Aufklappen: was hier drinsteht, haengt daran,
+     worauf geklickt wurde. -->
+<div id="ctx" class="ctx hidden" role="menu"></div>
+
 <div id="offline" class="hidden">
   <div class="box">
-    <h2 style="margin:0 0 8px;font-size:16px">Bridge nicht erreichbar</h2>
-    <p class="muted" style="margin:0;font-size:13px">
+    <h2 id="offline-title" style="margin:0 0 8px;font-size:16px">Bridge nicht erreichbar</h2>
+    <p id="offline-lost" class="muted" style="margin:0;font-size:13px">
       Die Verbindung zu <code id="offline-host"></code> ist abgerissen.
       Läuft <code>python -m lightshow</code> noch? Es wird weiter versucht.
+    </p>
+    <p id="offline-off" class="muted hidden" style="margin:0;font-size:13px">
+      Von hier aus ausgeschaltet. Zum Weitermachen die Bridge neu starten —
+      das AppImage oder <code>python -m lightshow</code>.
     </p>
   </div>
 </div>
@@ -231,20 +324,59 @@
     <tr><td><kbd>Entf</kbd></td><td>Auswahl löschen</td></tr>
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Abspielkopf 1 s, mit <kbd>Umschalt</kbd> 5 s</td></tr>
     <tr><td><kbd>+</kbd> <kbd>−</kbd></td><td>Zoom, <kbd>Strg</kbd>+Mausrad über der Timeline</td></tr>
-    <tr><td><kbd>Strg</kbd>+<kbd>S</kbd></td><td>Speichern</td></tr>
+    <tr><td><kbd>Strg</kbd>+<kbd>S</kbd></td><td>Speichern — passiert ohnehin
+      von selbst, eine knappe Sekunde nach jeder Änderung</td></tr>
     <tr><td><kbd>B</kbd></td><td>Blackout</td></tr>
     <tr><td><kbd>1</kbd>…<kbd>4</kbd></td><td>Ansicht wechseln</td></tr>
     <tr><td><kbd>Alt</kbd> beim Ziehen</td><td>ohne Raster</td></tr>
+    <tr><td>Rechtsklick</td><td>Menü zum Einfügen, Duplizieren und Löschen —
+      auf einem Block, auf freier Spur, auf dem Spurkopf oder auf dem Lineal</td></tr>
   </table>
   <div class="row" style="margin-top:18px;justify-content:flex-end">
     <button onclick="document.getElementById('help').close()">Schließen</button>
   </div>
 </dialog>
 
+<!-- Zwei Stufen, weil das hier nicht rueckgaengig zu machen ist: wer aus
+     Versehen klickt, steht mit dunklen Modellen da und muss ans Terminal, um
+     die Bridge wieder zu starten. -->
+<dialog id="quit">
+  <div id="quit-step1">
+    <h2 style="margin:0 0 10px;font-size:16px">Bridge ausschalten?</h2>
+    <p class="muted" style="margin:0 0 6px;font-size:13px">Damit endet alles auf einmal:</p>
+    <ul class="muted" style="margin:0;padding-left:20px;font-size:13px;line-height:1.7">
+      <li>Alle Ausgänge fallen auf Failsafe, jedes Relais fällt ab.</li>
+      <li>Diese Oberfläche ist danach nicht mehr erreichbar.</li>
+    </ul>
+    <p id="quit-playing" class="warn-text hidden"
+       style="margin:12px 0 0;font-size:13px">Es läuft gerade eine Show.</p>
+    <div class="row" style="margin-top:18px;justify-content:flex-end">
+      <button id="quit-cancel1">Abbrechen</button>
+      <button id="quit-next">Weiter</button>
+    </div>
+  </div>
+
+  <div id="quit-step2" class="hidden">
+    <h2 style="margin:0 0 10px;font-size:16px">Wirklich ausschalten?</h2>
+    <p class="muted" style="margin:0;font-size:13px">
+      Zurückholen geht nur am Rechner: AppImage noch einmal starten oder
+      <code>python -m lightshow</code>.
+    </p>
+    <!-- Bestaetigen liegt links, Abbrechen rechts: wer zweimal auf dieselbe
+         Stelle klickt, bricht ab statt auszuschalten. -->
+    <div class="row" style="margin-top:18px;justify-content:flex-end">
+      <button id="quit-confirm" class="danger">Jetzt ausschalten</button>
+      <button id="quit-cancel2">Abbrechen</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="wizard" class="wizard">
-  <h2 style="margin:0 0 4px;font-size:17px">Neues Modell</h2>
-  <p class="muted" style="margin:0 0 14px;font-size:12.5px">Vier Schritte, in der
-    Reihenfolge, in der einer den nächsten festlegt.</p>
+  <h2 id="wiz-title" style="margin:0 0 4px;font-size:17px">Neues Modell</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12.5px">Sechs Schritte, in der
+    Reihenfolge, in der einer den nächsten festlegt — Bauart und Platine zuerst,
+    weil sie den späteren drei die halbe Arbeit abnehmen. Die Reiter sind
+    anklickbar, zum Ändern muss nicht alles noch einmal durchlaufen werden.</p>
   <div id="wiz-steps" class="wiz-steps"></div>
   <div id="wiz-body" class="wiz-body"></div>
   <div id="wiz-note" class="note warn hidden" style="margin-top:12px"></div>
@@ -257,8 +389,29 @@
   </div>
 </dialog>
 
+<!-- Same chrome as the model wizard, and deliberately so: creating a project
+     asks two questions instead of six, but it is the same kind of act and
+     should not look like a different program. -->
+<dialog id="projwiz" class="wizard">
+  <h2 style="margin:0 0 4px;font-size:17px">Neues Projekt</h2>
+  <p class="muted" style="margin:0 0 14px;font-size:12.5px">Zwei Schritte: wie die
+    Show heißt, und welche Flugzeuge dabei fliegen. Aus den Modellen entstehen
+    die Spuren — je Zone eine Lichtspur, je Relais eine Relaisspur.</p>
+  <div id="pw-steps" class="wiz-steps"></div>
+  <div id="pw-body" class="wiz-body"></div>
+  <div id="pw-note" class="note warn hidden" style="margin-top:12px"></div>
+  <div class="row" style="margin-top:18px">
+    <button id="pw-cancel" class="quiet">Abbrechen</button>
+    <span class="grow"></span>
+    <button id="pw-back">Zurück</button>
+    <button id="pw-next" class="primary">Weiter</button>
+    <button id="pw-create" class="primary hidden">Projekt anlegen</button>
+  </div>
+</dialog>
+
 <script src="effects.js"></script>
 <script src="app.js"></script>
 <script src="wizard.js"></script>
+<script src="projectwiz.js"></script>
 </body>
 </html>

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streifenvorschau — Lightshow</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Its own window, so it carries its own frame rather than the app shell. */
+  body { background: var(--bg); color: var(--text); padding: 0; }
+  .bar {
+    position: sticky; top: 0; z-index: 2; display: flex; gap: 12px;
+    align-items: center; padding: 12px 18px; background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar h1 { font-size: 14px; font-weight: 650; margin: 0; }
+  /* On a narrow window the tools drop to a second line instead of squeezing the
+     view buttons into unreadable slivers. */
+  .bar { flex-wrap: wrap; row-gap: 8px; }
+
+  /* Each group of tools is its own row, with its own spacing. Without this the
+     labels, the selects and the sliders sit flush against one another: the bar
+     spaces its own children, and these are all inside one child. */
+  .tools { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .tools + .tools { margin-left: 6px; }
+  /* A group reads as one thing when its label sits on its control, so the
+     boundary between groups has to be wider than the gaps inside one. */
+  .tools .lbl {
+    margin: 0; white-space: nowrap;
+    font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .tools .lbl + .lbl, .tools > * + .lbl { margin-left: 8px; }
+  .tools select { min-width: 118px; }
+  .tools input[type=range] { width: 104px; }
+  /* The dividing line does the work a wide gap would otherwise have to do, and
+     keeps the bar compact enough to stay on one row. */
+  .bar .rule {
+    width: 1px; align-self: stretch; margin: 2px 4px;
+    background: var(--line); flex: 0 0 auto;
+  }
+  /* A slider without a number is a guess. */
+  .tools output {
+    font-size: 11.5px; color: var(--text-3); min-width: 30px;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { padding: 18px; display: flex; flex-direction: column; gap: 22px; }
+
+  .model { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .model > header {
+    display: flex; gap: 12px; align-items: baseline; padding: 11px 15px;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .model > header h2 { font-size: 13.5px; font-weight: 650; margin: 0; }
+  .model .empty { padding: 16px; color: var(--text-3); font-size: 12.5px; }
+
+  .chain { padding: 13px 15px 16px; border-top: 1px solid var(--line); }
+  .chain:first-of-type { border-top: none; }
+  .chain-head {
+    display: flex; gap: 10px; align-items: baseline; margin-bottom: 7px;
+    font-size: 12.5px;
+  }
+
+  /* Where each segment sits on the chain, to scale -- so the strip below can be
+     read against it without counting pixels. */
+  .ruler { position: relative; height: 19px; margin-bottom: 4px; }
+  .ruler .seg {
+    position: absolute; top: 0; height: 100%; border-radius: 5px;
+    display: flex; align-items: center; gap: 6px; padding: 0 6px;
+    font-size: 10.5px; white-space: nowrap; overflow: hidden;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+  .ruler .seg i { font-style: normal; color: var(--text-2); }
+  .ruler .seg em { font-style: normal; color: var(--text-3); }
+  /* One tint per zone, so two segments of the same zone are recognisable as
+     such across different chains. */
+  .ruler .seg.z1 { background: color-mix(in srgb, var(--ok) 14%, transparent);
+                   border-color: color-mix(in srgb, var(--ok) 38%, transparent); }
+  .ruler .seg.z2 { background: color-mix(in srgb, var(--live) 14%, transparent);
+                   border-color: color-mix(in srgb, var(--live) 38%, transparent); }
+  .ruler .seg.z3 { background: color-mix(in srgb, var(--bad) 14%, transparent);
+                   border-color: color-mix(in srgb, var(--bad) 38%, transparent); }
+
+  canvas.strip {
+    display: block; width: 100%; border-radius: 8px;
+    background: #05070c; border: 1px solid var(--line);
+  }
+
+  /* ------------------------------------------------------------- mockup -- */
+  .mock-grid { display: grid; grid-template-columns: 250px 1fr; gap: 16px; }
+  .mock-list { display: flex; flex-direction: column; gap: 6px; }
+  .mock-item {
+    display: block; text-align: left; padding: 8px 10px; border-radius: 9px;
+    background: var(--surface-2); border: 1px solid var(--line); cursor: pointer;
+    color: var(--text-2); font: inherit; white-space: normal;
+  }
+  .mock-item:hover { border-color: var(--line-2); }
+  .mock-item.on {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    background: var(--accent-dim);
+  }
+  .mock-item.unplaced { border-style: dashed; }
+  .mock-item b { display: block; font-size: 12.5px; color: var(--text); }
+  .mock-item span { display: block; font-size: 11px; color: var(--text-3); }
+  .mock-item em { font-style: normal; font-size: 11px; color: var(--accent); }
+  .mock-item.unplaced em { color: var(--text-3); }
+
+  .mock-stage {
+    position: relative; overflow: hidden;
+    background: radial-gradient(120% 90% at 50% 18%, #0b1020 0%, #05070d 55%,
+                                #020307 100%);
+    border: 1px solid var(--line); border-radius: 12px;
+    /* Fixed height so the picture fits the window rather than pushing the page
+       down. The camera letterboxes its window inside whatever it gets. */
+    height: calc(100vh - 210px); min-height: 340px;
+  }
+  /* The rendering below, everything you can grab above -- both filling the
+     stage, so a handle sits exactly on the light it belongs to. */
+  #mock-gl, #mock-svg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    touch-action: none;
+  }
+  #mock-gl { cursor: default; }
+  .stage-3d #mock-gl { cursor: grab; }
+  .stage-3d #mock-gl:active { cursor: grabbing; }
+  /* The overlay only exists for its handles; everywhere else the pointer has to
+     reach the canvas underneath, which is what turns the model. */
+  #mock-svg { pointer-events: none; }
+  #mock-svg .placed { pointer-events: auto; }
+
+  .placed line.hit {
+    stroke: transparent; stroke-width: 30; cursor: grab;
+  }
+  /* Faint on purpose. The band lies over the very pixels you are judging, and
+     at the old strength it tinted a warm strip blue -- the two handles and the
+     highlighted list entry already say which segment is selected. */
+  .placed.sel line.hit { stroke: color-mix(in srgb, var(--accent) 11%, transparent); }
+  .placed circle.handle {
+    fill: var(--accent); stroke: #05070c; stroke-width: 3; cursor: grab;
+    opacity: 0; pointer-events: none;
+  }
+  .placed.sel circle.handle { opacity: 1; pointer-events: auto; }
+  /* The turning grip sits off to the side of the middle, on a short stalk --
+     hollow, so it is not mistaken for a third end. */
+  .placed circle.spin {
+    fill: #05070c; stroke: var(--accent); stroke-width: 3;
+    cursor: crosshair; opacity: 0; pointer-events: none;
+  }
+  .placed line.stalk {
+    stroke: var(--accent); stroke-width: 1.5; opacity: 0;
+  }
+  .placed.sel circle.spin { opacity: 1; pointer-events: auto; }
+  .placed.sel line.stalk { opacity: .55; }
+
+  #offline {
+    position: fixed; inset: auto 18px 18px auto; padding: 8px 13px;
+    border-radius: 8px; font-size: 12.5px;
+    background: color-mix(in srgb, var(--bad) 20%, var(--surface));
+    border: 1px solid var(--bad);
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Vorschau</h1>
+  <span class="seg" id="tabs">
+    <button data-tab="strips" aria-pressed="true">Streifen</button>
+    <button data-tab="mock" aria-pressed="false">Modell</button>
+  </span>
+  <span class="grow"></span>
+  <span id="strip-tools" class="tools">
+    <label class="lbl" for="model-filter">Modell</label>
+    <select id="model-filter"></select>
+    <label class="lbl" for="zoom">Größe</label>
+    <input type="range" id="zoom" min="0.6" max="2.4" step="0.1" value="1">
+    <output id="zoom-out" for="zoom">1,0×</output>
+  </span>
+  <span id="mock-tools" class="tools hidden">
+    <label class="lbl" for="mock-model">Modell</label>
+    <select id="mock-model"></select>
+    <span class="rule"></span>
+    <span class="seg" id="mock-views"></span>
+    <span class="rule"></span>
+    <label class="lbl" for="mock-ambient"
+           title="Wie hell die Nacht ist. Ganz links bleibt vom Modell nur, was
+                  seine eigenen Streifen zeigen; nach rechts wird das Flugzeug so
+                  weit aufgehellt, dass sich ein Streifen genau ansetzen lässt.">
+      Nacht</label>
+    <input type="range" id="mock-ambient" min="0" max="1" step="0.02" value="0.30">
+    <output id="mock-ambient-out" for="mock-ambient"></output>
+    <span class="rule"></span>
+    <button id="mock-clear" class="quiet" title="Platzierung des gewählten Abschnitts aufheben">
+      Platzierung lösen</button>
+    <button id="mock3d-reset" class="quiet hidden" title="Ansicht zurücksetzen">
+      Ansicht zurück</button>
+  </span>
+</div>
+
+<div class="wrap" id="tab-strips"><div id="models"></div></div>
+
+<div class="wrap hidden" id="tab-mock">
+  <p class="dim" style="margin:0;font-size:12.5px">
+    Links einen Abschnitt wählen, dann auf dem Flugzeug ziehen: die Enden zielen,
+    die Mitte verschiebt, der Griff daneben dreht (mit <kbd>Umschalt</kbd> in
+    15°-Schritten). Klick ins Leere oder <kbd>Esc</kbd> legt den Abschnitt wieder
+    aus der Hand. Die Pixel liegen der Reihe nach auf der Linie und leuchten so,
+    wie die Show gerade läuft. <span id="mock-hint"></span>
+  </p>
+  <div class="mock-grid">
+    <div id="mock-list" class="mock-list"></div>
+    <div class="mock-stage" id="mock-stage">
+      <canvas id="mock-gl"></canvas>
+      <svg id="mock-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+  </div>
+  <div id="mock-note" class="warn-text" style="font-size:12px"></div>
+  <div id="mock-buried" class="warn-text" style="font-size:12px"></div>
+</div>
+
+<div id="offline" class="hidden">Keine Verbindung zur Bridge.</div>
+
+<script src="effects.js"></script>
+<script src="glkit.js"></script>
+<script src="airframe3d.js"></script>
+<script src="mockup.js"></script>
+<script src="mockgl.js"></script>
+<script src="preview.js"></script>
+</body>
+</html>

@@ -15,8 +15,8 @@ This module turns it into a measurement, in three parts:
   analyse  lays them on top of each other and answers the only question that
            matters: how many bits does a channel actually carry
 
-Run the sweep once with a jumper from GPIO2 to GPIO10 and once over the air.
-The difference between the two is the radio.
+Run the sweep over the air and compare against what the ground station was
+told to send. The difference between the two is the radio.
 """
 
 from __future__ import annotations

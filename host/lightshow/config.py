@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -19,15 +19,9 @@ class ConfigError(Exception):
 @dataclass
 class ChannelCfg:
     role: str
-    cc: int
-    cc_lsb: int | None = None      # set for 14 bit control changes
     quantize: int | None = None    # number of discrete steps, for cue channels
     invert: bool = False
     failsafe: int = 1000
-
-    @property
-    def bits(self) -> int:
-        return 14 if self.cc_lsb is not None else 7
 
 
 @dataclass
@@ -62,38 +56,133 @@ PICO_PHYSICAL_PIN = {
     18: 24, 19: 25, 20: 26, 21: 27, 22: 29, 26: 31, 27: 32, 28: 34,
 }
 
-RELAY_SOURCES = ("pixel", "brightness", "cue", "channel", "bus")
-
 # A zone is four channels in this order, and both the airborne firmware and the
 # project timeline address them by position, not by name. So the order is not a
 # convention -- it is the wiring, and a swapped pair means the model reacts to
 # the wrong channel without anything looking wrong anywhere.
 CHANNEL_ROLES = ("cue", "hue", "brightness", "param")
 
-MAX_STRIPS = 8      # one PIO state machine each
+@dataclass(frozen=True)
+class BoardCfg:
+    """A ready-made board: which GPIO its connectors actually go to.
+
+    A model built on one of these does not get to choose its pins -- they are
+    etched into the copper. Saying which board it is therefore does two things:
+    it lets the wizard fill the pins in rather than ask, and it lets the check
+    catch a configuration that claims a board and then names a pin the board
+    does not bring out anywhere.
+    """
+
+    key: str
+    name: str
+    sbus_pin: int
+    led_pins: tuple[int, ...]
+    relay_pins: tuple[int, ...]
+
+
+# `board: pico` means a free build -- a bare Pico wired by hand, where nothing
+# below applies and every pin is the builder's choice.
+FREE_BOARD = "pico"
+
+BOARDS: dict[str, BoardCfg] = {
+    "modell-2led-2relais-v1": BoardCfg(
+        key="modell-2led-2relais-v1",
+        name="RC-Lightshow Modell-2LED-2Relais-v1",
+        sbus_pin=5,
+        led_pins=(2, 3),
+        relay_pins=(6, 7),
+    ),
+}
+
+# Boards that were called something else before. Naming the successor beats a
+# list of everything that exists, which is what an unknown name would get.
+RENAMED_BOARDS = {"modell-v1": "modell-2led-2relais-v1"}
+
+# What the preview draws a model as. Only the ground station cares: the airborne
+# config.h has no idea what shape it is bolted into. Names are what goes in
+# show.yaml; the sentence is what the interface offers.
+AIRFRAMES = {
+    "motor": "Motorflugzeug",
+    "segler": "Segelflugzeug",
+    "quad": "Quadrocopter",
+}
+
+MAX_OUTPUTS = 8         # one PIO state machine each
+MAX_SEGMENTS = 16
 MAX_RELAYS = 8
-MAX_ZONE_PIXELS = 256
+MAX_ZONE_PIXELS = 256   # longest virtual chain one zone may render
+MAX_OUTPUT_PIXELS = 256  # longest physical chain on one GPIO
 CHANNELS_PER_ZONE = 4
 
 
+# The four sides of a model anybody can walk around.
+VIEWS = ("top", "bottom", "left", "right")
+
+
 @dataclass
-class StripCfg:
+class PlacementCfg:
+    """Where a segment sits on the mockup: a line on one of four views.
+
+    A strip is a line on the airframe, so a line is what this is -- the pixels
+    lay themselves along it from `x1,y1` to `x2,y2`. Coordinates are 0..1 across
+    the view, so the drawing scales with the window.
+
+    Nothing downstream reads this: not the generator, not the firmware, not the
+    wire. It exists so a show can be judged without an aircraft on the bench,
+    and it is written back into show.yaml so that judgement survives a restart.
+    """
+
+    view: str = "top"
+    x1: float = 0.35
+    y1: float = 0.5
+    x2: float = 0.65
+    y2: float = 0.5
+
+
+@dataclass
+class SegmentCfg:
+    """A stretch of one physical chain that belongs to one zone.
+
+    The wire is physical and the zone is editorial. Keeping them in one table
+    forced a chain to be exactly one zone, which let a soldering decision
+    dictate a lighting decision; a segment is where the two meet instead.
+    """
+
     name: str
-    pin: int
+    start: int             # first pixel of this segment on its chain
     count: int
     zone: int = 0
     offset: int = 0        # position inside the zone's virtual chain
     reverse: bool = False
+    # Purely for the preview; absent until somebody places it.
+    place: PlacementCfg | None = None
+
+    @property
+    def end(self) -> int:
+        return self.start + self.count
+
+
+@dataclass
+class OutputCfg:
+    """One WS2812 chain: one GPIO, one PIO state machine, N pixels."""
+
+    name: str
+    pin: int
+    count: int
+    segments: list[SegmentCfg] = field(default_factory=list)
 
 
 @dataclass
 class RelayCfg:
+    """The board side of one relay: which pin, and how fast it may switch.
+
+    Which relay it *is* comes from its position in the list, which is also its
+    bit in the bus frame and its entry in the model's ``bus.relays``. There is
+    no slot number to get wrong.
+    """
+
     name: str
     pin: int
-    zone: int = 0
-    source: str = "pixel"  # one of RELAY_SOURCES
-    arg: int = 0
-    threshold: int = 64
     active_low: bool = False
     min_on_ms: int = 0     # 0 for MOSFETs, ~200 for mechanical relays
     min_off_ms: int = 0
@@ -101,8 +190,8 @@ class RelayCfg:
 
 @dataclass
 class NavLightCfg:
-    strip: int
-    index: int
+    output: int            # index into PlaneCfg.outputs
+    index: int             # absolute pixel on that chain
     color: tuple[int, int, int] = (255, 255, 255)
 
 
@@ -111,34 +200,57 @@ class PlaneCfg:
     """Everything the airborne controller needs; generated into a config.h."""
 
     board: str = "pico"
+    # What sort of aircraft this is. Nothing airborne reads it -- the generator
+    # ignores it and it never goes over the link. It exists so the preview can
+    # draw the shape the strips are actually on: a strip along a glider's wing
+    # and one along a quadcopter's arm are not the same picture.
+    airframe: str = "motor"
     sbus_pin: int = 5
     max_brightness: int = 200
     render_hz: int = 200
-    strips: list[StripCfg] = field(default_factory=list)
+    outputs: list[OutputCfg] = field(default_factory=list)
     relays: list[RelayCfg] = field(default_factory=list)
     nav_lights: list[NavLightCfg] = field(default_factory=list)
+
+    @property
+    def segments(self) -> list[tuple[int, SegmentCfg]]:
+        """Every segment with the index of the chain it sits on, in wire order."""
+        return [(index, segment)
+                for index, output in enumerate(self.outputs)
+                for segment in output.segments]
+
+    def zone_pixels(self, zone: int) -> int:
+        """Length of the virtual chain a zone renders.
+
+        As long as the furthest segment reaches, not the pixel counts added up:
+        segments sharing an offset mirror each other.
+        """
+        return max((segment.offset + segment.count
+                    for _, segment in self.segments if segment.zone == zone),
+                   default=0)
 
 
 @dataclass
 class BusRelayCfg:
-    """A relay switched straight over the bus, with a control change of its own."""
+    """A relay switched straight over the bus, by one bit of the frame."""
 
     name: str
-    cc: int
-    failsafe: bool = False         # state before the first message arrives
+    failsafe: bool = False         # state before the show says otherwise
 
 
 @dataclass
 class BusCfg:
-    """Bus mode: the model's eight channels carry one addressed data frame.
+    """The model's eight channels carry one addressed data frame.
 
-    Without it, four channels are one zone and eight channels are two, full
-    stop. With it, the same eight channels carry a zone address and a payload,
-    so a model can have more zones than channels -- paid for in latency, since
-    one zone is refreshed per RC frame.
+    This is how every model talks now. The alternative -- four channels being
+    one zone, eight being two, full stop -- was dropped: it could not carry more
+    zones than channels, it could not switch a relay independently of a zone,
+    and it could not tell a foreign frame from a valid one. Keeping both meant
+    every rule downstream had two answers.
+
+    Paid for in latency: one zone is refreshed per RC frame.
     """
 
-    enabled: bool = False
     relays: list[BusRelayCfg] = field(default_factory=list)
 
     @property
@@ -149,12 +261,11 @@ class BusCfg:
 @dataclass
 class ModelCfg:
     name: str
-    midi_channel: int              # 1..16 as shown in Ardour
     tx_port: int
     tx_offset: int = 0             # first port channel this model occupies
     channels: list[ChannelCfg] = field(default_factory=list)
     plane: PlaneCfg | None = None
-    bus: BusCfg | None = None
+    bus: BusCfg = field(default_factory=BusCfg)
 
     @property
     def zone_count(self) -> int:
@@ -162,23 +273,21 @@ class ModelCfg:
         return max(1, len(self.channels) // CHANNELS_PER_ZONE)
 
     @property
-    def uses_bus(self) -> bool:
-        return self.bus is not None and self.bus.enabled
-
-    @property
     def wire_channels(self) -> int:
         """How many RC channels the model occupies on its transmitter.
 
-        In bus mode that is always the eight the code needs, however many zones
-        the model has -- which is the whole point of the mode.
+        Always the eight the code needs, however many zones the model has --
+        which is the whole point of the bus.
         """
         from .bus import SYMBOLS
-        return SYMBOLS if self.uses_bus else len(self.channels)
+        return SYMBOLS
 
     def zone_base_channel(self, zone: int) -> int:
         """First RC channel of a zone, counted as the transmitter counts.
 
-        Meaningless in bus mode, where no zone owns channels of its own.
+        No zone owns channels of its own any more; this is what the sweep tool
+        drives when it characterises the radio link, and what the measure build
+        prints. It is a position on the wire, not a route to a zone.
         """
         return self.tx_offset + zone * CHANNELS_PER_ZONE + 1
 
@@ -187,8 +296,6 @@ class ModelCfg:
 class ShowCfg:
     serial_port: str = "/dev/ttyACM0"
     rate_hz: int = 100
-    midi_port_name: str = "lightshow"
-    blackout_cc: int | None = 119
     global_offset_ms: int = 0
     # Above this, a bus zone waits so long for its turn that a cue change no
     # longer lands on the beat. Nothing is forbidden -- combinations past it
@@ -196,6 +303,23 @@ class ShowCfg:
     bus_latency_limit_ms: int = 150
     ports: list[PortCfg] = field(default_factory=list)
     models: list[ModelCfg] = field(default_factory=list)
+
+    def adopt(self, other: "ShowCfg") -> None:
+        """Becomes `other`, in place, keeping this object's identity.
+
+        The bridge hands the same ShowCfg to the mapper, the link, the session,
+        the monitor and the web server, and each of them keeps it for as long as
+        it runs. Replacing the object would leave every one of those holding the
+        old one, and the interface would report a change nobody downstream had
+        heard of. Copying the fields across instead means there is exactly one
+        configuration in the process, before and after an edit.
+
+        Only what the file describes is copied. Anything derived from it --
+        the mapper's slots, the port setup the ground station was given -- has
+        to be rebuilt by whoever owns it; see `Server.apply_show`.
+        """
+        for f in fields(self):
+            setattr(self, f.name, getattr(other, f.name))
 
     def port_by_id(self, port_id: int) -> PortCfg:
         for port in self.ports:
@@ -217,19 +341,15 @@ class ShowCfg:
             for model in self.models:
                 if model.tx_port != port.id:
                     continue
-                if model.uses_bus:
-                    # A per channel failsafe means nothing here: the eight
-                    # channels are one code word, and eight independent
-                    # "sensible" values are not a code word at all. What the
-                    # ground station must hold is a valid frame saying "off".
-                    symbols = bus_mode.failsafe_frame(
-                        model.zone_count, model.bus.relay_count)
-                    for index, symbol in enumerate(symbols):
-                        failsafe[model.tx_offset + index] = bus_mode.symbol_to_us(
-                            symbol, port.min_us, port.max_us)
-                    continue
-                for index, channel in enumerate(model.channels):
-                    failsafe[model.tx_offset + index] = channel.failsafe
+                # A per channel failsafe means nothing here: the eight channels
+                # are one code word, and eight independent "sensible" values are
+                # not a code word at all. What the ground station must hold is a
+                # valid frame saying "off".
+                symbols = bus_mode.failsafe_frame(
+                    model.zone_count, model.bus.relay_count)
+                for index, symbol in enumerate(symbols):
+                    failsafe[model.tx_offset + index] = bus_mode.symbol_to_us(
+                        symbol, port.min_us, port.max_us)
             wires.append(
                 PortWire(
                     name=port.name,
@@ -251,8 +371,8 @@ def step_us(port: PortCfg, steps: int, index: int) -> int:
 
     Each step sits in the *middle* of its band, so a channel that arrives a few
     microseconds off still truncates back to the same index on board. Both the
-    MIDI mapper and the project timeline encode through here, and so does the
-    link measurement -- a sweep that used its own formula would measure the
+    resting mapper and the project timeline encode through here, and so does
+    the link measurement -- a sweep that used its own formula would measure the
     wrong thing.
     """
     span = port.max_us - port.min_us
@@ -286,16 +406,10 @@ def _require(data: dict[str, Any], key: str, where: str) -> Any:
 def _parse_channel(data: dict[str, Any], where: str, port: PortCfg) -> ChannelCfg:
     channel = ChannelCfg(
         role=str(_require(data, "role", where)),
-        cc=int(_require(data, "cc", where)),
-        cc_lsb=int(data["cc_lsb"]) if data.get("cc_lsb") is not None else None,
         quantize=int(data["quantize"]) if data.get("quantize") is not None else None,
         invert=bool(data.get("invert", False)),
         failsafe=int(data.get("failsafe", port.min_us)),
     )
-    for name, value in (("cc", channel.cc), ("cc_lsb", channel.cc_lsb)):
-        if value is not None and not 0 <= value <= 119:
-            # 120..127 are channel mode messages and must not be used as data.
-            raise ConfigError(f"{where}: {name} {value} is outside 0..119")
     if channel.quantize is not None and not 2 <= channel.quantize <= 128:
         raise ConfigError(f"{where}: quantize must be between 2 and 128")
     if not port.min_us <= channel.failsafe <= port.max_us:
@@ -317,6 +431,7 @@ def _check_gpio(pin: int, where: str, what: str) -> None:
 def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
     plane = PlaneCfg(
         board=str(data.get("board", "pico")),
+        airframe=str(data.get("airframe", "motor")),
         sbus_pin=int(data.get("sbus_pin", 5)),
         max_brightness=int(data.get("max_brightness", 200)),
         render_hz=int(data.get("render_hz", 200)),
@@ -325,6 +440,27 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
         raise ConfigError(f"{where}: max_brightness must be between 1 and 255")
     if not 30 <= plane.render_hz <= 1000:
         raise ConfigError(f"{where}: render_hz must be between 30 and 1000")
+    if plane.airframe not in AIRFRAMES:
+        raise ConfigError(
+            f"{where}: airframe '{plane.airframe}' is unknown "
+            f"(pick one of: {', '.join(AIRFRAMES)})"
+        )
+
+    board = BOARDS.get(plane.board)
+    if board is None and plane.board != FREE_BOARD:
+        if plane.board in RENAMED_BOARDS:
+            raise ConfigError(
+                f"{where}: board '{plane.board}' is now called "
+                f"'{RENAMED_BOARDS[plane.board]}' -- the silkscreen names the "
+                f"variant since more boards are coming"
+            )
+        known = ", ".join([FREE_BOARD, *sorted(BOARDS)])
+        raise ConfigError(f"{where}: board '{plane.board}' is unknown -- one of {known}")
+    if board is not None and plane.sbus_pin != board.sbus_pin:
+        raise ConfigError(
+            f"{where}: '{board.name}' wires SBUS to GPIO {board.sbus_pin}, not "
+            f"{plane.sbus_pin}. Use board '{FREE_BOARD}' for a hand-wired build"
+        )
 
     # PWM ist ersatzlos entfallen -- der Empfaenger spricht nur noch SBUS. Eine
     # alte Konfiguration darf nicht stillschweigend durchrutschen, sonst glaubt
@@ -344,133 +480,202 @@ def _parse_plane(data: dict[str, Any], where: str, model: ModelCfg) -> PlaneCfg:
             f"{', '.join(str(p) for p in sorted(PICO_UART1_RX_GPIO))}"
         )
 
-    strips = data.get("strips") or []
-    relays = data.get("relays") or []
-    if len(strips) > MAX_STRIPS:
+    # A chain used to be a zone, so the key was called `strips`. Refusing the
+    # old name is louder than migrating it: the shape below is different enough
+    # that a silent guess would put pixels in the wrong place.
+    if "strips" in data:
         raise ConfigError(
-            f"{where}: {len(strips)} strips, but only {MAX_STRIPS} PIO state "
-            f"machines exist"
+            f"{where}: 'strips' is now 'outputs' -- a chain is one GPIO, and the "
+            f"zones it serves are 'segments' underneath it. A former strip "
+            f"becomes an output with one segment covering all its pixels"
+        )
+
+    outputs = data.get("outputs") or []
+    relays = data.get("relays") or []
+    if len(outputs) > MAX_OUTPUTS:
+        raise ConfigError(
+            f"{where}: {len(outputs)} LED outputs, but only {MAX_OUTPUTS} PIO "
+            f"state machines exist"
         )
     if len(relays) > MAX_RELAYS:
         raise ConfigError(f"{where}: at most {MAX_RELAYS} relays, got {len(relays)}")
 
     zones = model.zone_count
-    for index, entry in enumerate(strips):
-        spot = f"{where}.strips[{index}]"
-        strip = StripCfg(
-            name=str(entry.get("name", f"strip{index}")),
+    for index, entry in enumerate(outputs):
+        spot = f"{where}.outputs[{index}]"
+        output = OutputCfg(
+            name=str(entry.get("name", f"output{index}")),
             pin=int(_require(entry, "pin", spot)),
             count=int(_require(entry, "count", spot)),
-            zone=int(entry.get("zone", 0)),
-            offset=int(entry.get("offset", 0)),
-            reverse=bool(entry.get("reverse", False)),
         )
-        _check_gpio(strip.pin, spot, "WS2812 data")
-        if strip.count < 1:
+        _check_gpio(output.pin, spot, "WS2812 data")
+        if board is not None and output.pin not in board.led_pins:
+            raise ConfigError(
+                f"{spot}: '{board.name}' brings its LED connectors out on GPIO "
+                f"{', '.join(str(pin) for pin in board.led_pins)}, not "
+                f"{output.pin}"
+            )
+        if output.count < 1:
             raise ConfigError(f"{spot}: count must be at least 1")
-        if not 0 <= strip.zone < zones:
+        if output.count > MAX_OUTPUT_PIXELS:
             raise ConfigError(
-                f"{spot}: zone {strip.zone} does not exist, the model has "
-                f"{zones} zone(s) ({len(model.channels)} channels)"
+                f"{spot}: {output.count} pixels, the firmware buffers "
+                f"{MAX_OUTPUT_PIXELS} per chain"
             )
-        if strip.offset + strip.count > MAX_ZONE_PIXELS:
-            raise ConfigError(
-                f"{spot}: reaches pixel {strip.offset + strip.count}, the "
-                f"firmware buffers {MAX_ZONE_PIXELS} per zone"
-            )
-        plane.strips.append(strip)
 
+        entries = entry.get("segments")
+        if entries is None:
+            # A chain nobody divided is one segment covering all of it. Saying
+            # so here keeps the rest of the code free of a special case.
+            entries = [{"name": output.name, "start": 0, "count": output.count}]
+        if not isinstance(entries, list) or not entries:
+            raise ConfigError(f"{spot}.segments: must be a non-empty list")
+
+        cursor = 0
+        for si, sub_entry in enumerate(entries):
+            sspot = f"{spot}.segments[{si}]"
+            if not isinstance(sub_entry, dict):
+                raise ConfigError(f"{sspot}: must be a section")
+            # `start` is optional: segments given without one simply follow each
+            # other along the chain, which is what dividing a strip means.
+            start = int(sub_entry.get("start", cursor))
+            segment = SegmentCfg(
+                name=str(sub_entry.get("name", f"{output.name}{si + 1}")),
+                start=start,
+                count=int(sub_entry.get("count", output.count - start)),
+                zone=int(sub_entry.get("zone", 0)),
+                offset=int(sub_entry.get("offset", 0)),
+                reverse=bool(sub_entry.get("reverse", False)),
+                place=parse_placement(sub_entry.get("place"), f"{sspot}.place"),
+            )
+            if segment.count < 1:
+                raise ConfigError(f"{sspot}: count must be at least 1")
+            if segment.start < 0:
+                raise ConfigError(f"{sspot}: start cannot be negative")
+            if segment.end > output.count:
+                raise ConfigError(
+                    f"{sspot}: reaches pixel {segment.end} of chain "
+                    f"'{output.name}', which has {output.count}"
+                )
+            for other in output.segments:
+                if segment.start < other.end and other.start < segment.end:
+                    raise ConfigError(
+                        f"{sspot}: pixels {segment.start}..{segment.end - 1} "
+                        f"overlap segment '{other.name}' "
+                        f"({other.start}..{other.end - 1}) on the same chain"
+                    )
+            if not 0 <= segment.zone < zones:
+                raise ConfigError(
+                    f"{sspot}: zone {segment.zone} does not exist, the model has "
+                    f"{zones} zone(s) ({len(model.channels)} channels)"
+                )
+            if segment.offset + segment.count > MAX_ZONE_PIXELS:
+                raise ConfigError(
+                    f"{sspot}: reaches pixel {segment.offset + segment.count} of "
+                    f"its zone, the firmware buffers {MAX_ZONE_PIXELS} per zone"
+                )
+            output.segments.append(segment)
+            cursor = max(cursor, segment.end)
+
+        plane.outputs.append(output)
+
+    total_segments = sum(len(output.segments) for output in plane.outputs)
+    if total_segments > MAX_SEGMENTS:
+        raise ConfigError(
+            f"{where}: {total_segments} segments in total, the firmware holds "
+            f"{MAX_SEGMENTS}"
+        )
+
+    # A relay used to be able to derive its state on board -- from a pixel, the
+    # master dimmer, a cue number or a raw RC channel. Those are gone: a relay
+    # is switched over the bus and nowhere else. The old keys are named rather
+    # than ignored, because a configuration carrying them describes behaviour
+    # this firmware no longer has.
+    gone = {
+        "source": "a relay is always switched over the bus now",
+        "arg": "the position in this list is the bit in the frame",
+        "threshold": "there is no level left to compare against",
+        "zone": "a relay hangs off no zone at all any more",
+    }
     for index, entry in enumerate(relays):
         spot = f"{where}.relays[{index}]"
+        for key, why in gone.items():
+            if key in entry:
+                raise ConfigError(f"{spot}: '{key}' does not exist any more -- {why}")
+
         relay = RelayCfg(
             name=str(entry.get("name", f"relay{index}")),
             pin=int(_require(entry, "pin", spot)),
-            zone=int(entry.get("zone", 0)),
-            source=str(entry.get("source", "pixel")).lower(),
-            arg=int(entry.get("arg", 0)),
-            threshold=int(entry.get("threshold", 64)),
             active_low=bool(entry.get("active_low", False)),
             min_on_ms=int(entry.get("min_on_ms", 0)),
             min_off_ms=int(entry.get("min_off_ms", 0)),
         )
         _check_gpio(relay.pin, spot, "relay driver")
-        if relay.source not in RELAY_SOURCES:
+        if board is not None and relay.pin not in board.relay_pins:
             raise ConfigError(
-                f"{spot}: source must be one of {', '.join(RELAY_SOURCES)}"
+                f"{spot}: '{board.name}' brings its switched outputs out on GPIO "
+                f"{', '.join(str(pin) for pin in board.relay_pins)}, not "
+                f"{relay.pin}"
             )
-        if not 0 <= relay.zone < zones:
-            raise ConfigError(f"{spot}: zone {relay.zone} does not exist")
-        if not 0 <= relay.threshold <= 255:
-            raise ConfigError(f"{spot}: threshold must be between 0 and 255")
         if relay.min_on_ms < 0 or relay.min_off_ms < 0:
             raise ConfigError(f"{spot}: minimum times cannot be negative")
-
-        if relay.source == "pixel":
-            # The virtual chain is as long as the furthest strip reaches, not as
-            # long as the pixel counts added up: strips sharing an offset mirror
-            # each other. Summing would accept an index the firmware then reads
-            # as out of range, and the relay would simply never switch.
-            zone_pixels = max(
-                (s.offset + s.count for s in plane.strips if s.zone == relay.zone),
-                default=0,
-            )
-            if zone_pixels and relay.arg >= zone_pixels:
-                raise ConfigError(
-                    f"{spot}: follows pixel {relay.arg}, but zone {relay.zone} "
-                    f"only has {zone_pixels}"
-                )
-        elif relay.source == "cue":
-            if not 1 <= relay.arg <= 31:
-                raise ConfigError(f"{spot}: cue must be between 1 and 31")
-        elif relay.source == "channel":
-            if not 1 <= relay.arg <= MAX_CH:
-                raise ConfigError(f"{spot}: channel must be between 1 and {MAX_CH}")
-        elif relay.source == "bus":
-            # `arg` is the slot in the model's bus.relays list, so the wire and
-            # the aircraft agree on which bit means which relay.
-            available = model.bus.relay_count if model.uses_bus else 0
-            if not available:
-                raise ConfigError(
-                    f"{spot}: source 'bus' needs the model to run in bus mode "
-                    f"with at least one entry under bus.relays"
-                )
-            if not 0 <= relay.arg < available:
-                raise ConfigError(
-                    f"{spot}: bus relay {relay.arg}, but the model declares "
-                    f"{available} ({', '.join(r.name for r in model.bus.relays)})"
-                )
         plane.relays.append(relay)
+
+    # The board list and the wire list are two halves of the same relay, paired
+    # by position. Different lengths means a reserved bit nothing switches, or a
+    # relay nothing can reach; a different name at the same index means the two
+    # got out of order, which would switch the wrong device without any of it
+    # looking wrong.
+    wire = model.bus.relays
+    if len(plane.relays) != len(wire):
+        raise ConfigError(
+            f"{where}: {len(plane.relays)} relay(s) on the board but "
+            f"{len(wire)} in bus.relays. Each relay needs both: a bit on the "
+            f"wire and a pin to drive"
+        )
+    for index, (board, air) in enumerate(zip(plane.relays, wire)):
+        if board.name != air.name:
+            raise ConfigError(
+                f"{where}.relays[{index}]: named '{board.name}' here but "
+                f"'{air.name}' in bus.relays[{index}]. They are one relay and "
+                f"are paired by position, so the two lists must agree"
+            )
 
     for index, entry in enumerate(data.get("nav_lights") or []):
         spot = f"{where}.nav_lights[{index}]"
         colour = entry.get("color", [255, 255, 255])
         if len(colour) != 3 or any(not 0 <= int(c) <= 255 for c in colour):
             raise ConfigError(f"{spot}: color must be three values between 0 and 255")
+        if "strip" in entry and "output" not in entry:
+            raise ConfigError(
+                f"{spot}: 'strip' is now 'output' and counts pixels along the "
+                f"whole chain, not within one zone"
+            )
         nav = NavLightCfg(
-            strip=int(_require(entry, "strip", spot)),
+            output=int(_require(entry, "output", spot)),
             index=int(_require(entry, "index", spot)),
             color=(int(colour[0]), int(colour[1]), int(colour[2])),
         )
-        if not 0 <= nav.strip < len(plane.strips):
-            raise ConfigError(f"{spot}: strip {nav.strip} does not exist")
-        if nav.index >= plane.strips[nav.strip].count:
+        if not 0 <= nav.output < len(plane.outputs):
+            raise ConfigError(f"{spot}: output {nav.output} does not exist")
+        if nav.index >= plane.outputs[nav.output].count:
             raise ConfigError(
-                f"{spot}: pixel {nav.index} is beyond strip "
-                f"'{plane.strips[nav.strip].name}' with "
-                f"{plane.strips[nav.strip].count} pixels"
+                f"{spot}: pixel {nav.index} is beyond chain "
+                f"'{plane.outputs[nav.output].name}' with "
+                f"{plane.outputs[nav.output].count} pixels"
             )
         plane.nav_lights.append(nav)
 
     # One pin can only do one job. The UART pins are reserved for the console.
     used: dict[int, str] = {0: "debug UART TX", 1: "debug UART RX",
                             plane.sbus_pin: "SBUS input"}
-    for strip in plane.strips:
-        if strip.pin in used:
+    for output in plane.outputs:
+        if output.pin in used:
             raise ConfigError(
-                f"{where}: GPIO {strip.pin} is used by both {used[strip.pin]} "
-                f"and strip '{strip.name}'"
+                f"{where}: GPIO {output.pin} is used by both {used[output.pin]} "
+                f"and LED output '{output.name}'"
             )
-        used[strip.pin] = f"strip '{strip.name}'"
+        used[output.pin] = f"LED output '{output.name}'"
     for relay in plane.relays:
         if relay.pin in used:
             raise ConfigError(
@@ -535,16 +740,46 @@ def _parse_port(data: dict[str, Any]) -> PortCfg:
     return port
 
 
-def _parse_bus(data: Any, where: str) -> BusCfg | None:
-    """The `bus` section of a model. Absent or false means classic channels."""
-    if data is None or data is False:
+def parse_placement(data: Any, where: str) -> PlacementCfg | None:
+    """Where a segment sits on the mockup. Absent means "not placed yet"."""
+    if data is None:
         return None
-    if data is True:
-        return BusCfg(enabled=True)
     if not isinstance(data, dict):
-        raise ConfigError(f"{where}: must be true, false or a section")
+        raise ConfigError(f"{where}: must be a section")
 
-    bus_cfg = BusCfg(enabled=bool(data.get("enabled", True)))
+    view = str(data.get("view", "top")).lower()
+    if view not in VIEWS:
+        raise ConfigError(f"{where}.view: must be one of {', '.join(VIEWS)}")
+
+    def coord(key: str, fallback: float) -> float:
+        value = float(data.get(key, fallback))
+        # Clamped rather than refused: this is a drawing, and a point just off
+        # the edge is a slip of the mouse, not a configuration error.
+        return max(0.0, min(1.0, value))
+
+    return PlacementCfg(
+        view=view,
+        x1=coord("x1", 0.35), y1=coord("y1", 0.5),
+        x2=coord("x2", 0.65), y2=coord("y2", 0.5),
+    )
+
+
+def _parse_bus(data: Any, where: str) -> BusCfg:
+    """The `bus` section of a model. Absent means a bus with no relays."""
+    if data is None or data is True:
+        return BusCfg()
+    if not isinstance(data, dict):
+        raise ConfigError(f"{where}: must be a section")
+    # Bus mode is not optional any more, so a configuration that switches it off
+    # is refused rather than quietly ignored -- otherwise someone keeps
+    # believing in a mode the firmware no longer builds.
+    if data.get("enabled") is False:
+        raise ConfigError(
+            f"{where}.enabled: bus mode cannot be switched off -- it is the only "
+            f"mode the airborne firmware still has. Remove the key"
+        )
+
+    bus_cfg = BusCfg()
     entries = data.get("relays") or []
     if not isinstance(entries, list):
         raise ConfigError(f"{where}.relays: must be a list")
@@ -554,7 +789,6 @@ def _parse_bus(data: Any, where: str) -> BusCfg | None:
             raise ConfigError(f"{spot}: must be a section")
         bus_cfg.relays.append(BusRelayCfg(
             name=str(entry.get("name", f"relay{index}")),
-            cc=int(_require(entry, "cc", spot)),
             failsafe=bool(entry.get("failsafe", False)),
         ))
     return bus_cfg
@@ -598,13 +832,9 @@ def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
     where = f"models[{data.get('name', '?')}]"
     model = ModelCfg(
         name=str(_require(data, "name", where)),
-        midi_channel=int(_require(data, "midi_channel", where)),
         tx_port=int(_require(data, "tx_port", where)),
         tx_offset=int(data.get("tx_offset", 0)),
     )
-    if not 1 <= model.midi_channel <= 16:
-        raise ConfigError(f"{where}: midi_channel must be between 1 and 16")
-
     port = show.port_by_id(model.tx_port)
     channels = _require(data, "channels", where)
     if not isinstance(channels, list) or not channels:
@@ -614,13 +844,11 @@ def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
 
     model.bus = _parse_bus(data.get("bus"), f"{where}.bus")
 
-    occupied = bus_mode.SYMBOLS if model.uses_bus else len(channels)
+    occupied = bus_mode.SYMBOLS
     if model.tx_offset + occupied > port.nchan:
-        what = ("the bus needs eight channels" if model.uses_bus
-                else f"channels {model.tx_offset + 1}..{model.tx_offset + occupied}")
         raise ConfigError(
-            f"{where}: {what}, which do not fit into port '{port.name}' with "
-            f"{port.nchan} channels"
+            f"{where}: the bus needs eight channels, which do not fit into port "
+            f"'{port.name}' with {port.nchan} channels"
         )
     model.channels = [
         _parse_channel(entry, f"{where}.channels[{index}]", port)
@@ -640,31 +868,7 @@ def _parse_model(data: dict[str, Any], show: ShowCfg) -> ModelCfg:
                 f"{', '.join(CHANNEL_ROLES)} is what the firmware decodes"
             )
 
-    seen: dict[int, str] = {}
-    for channel in model.channels:
-        for cc in (channel.cc, channel.cc_lsb):
-            if cc is None:
-                continue
-            if cc in seen:
-                raise ConfigError(
-                    f"{where}: CC {cc} used by both '{seen[cc]}' and '{channel.role}'"
-                )
-            seen[cc] = channel.role
-
-    if model.uses_bus:
-        _check_bus(model, port, where)
-        for relay in model.bus.relays:
-            if relay.cc in seen:
-                raise ConfigError(
-                    f"{where}: CC {relay.cc} used by both '{seen[relay.cc]}' and "
-                    f"bus relay '{relay.name}'"
-                )
-            seen[relay.cc] = f"bus relay {relay.name}"
-    if show.blackout_cc is not None and show.blackout_cc in seen:
-        raise ConfigError(
-            f"{where}: CC {show.blackout_cc} is reserved as blackout_cc but used by "
-            f"'{seen[show.blackout_cc]}'"
-        )
+    _check_bus(model, port, where)
 
     if data.get("plane") is not None:
         if len(model.channels) % CHANNELS_PER_ZONE != 0:
@@ -691,14 +895,9 @@ def _build(raw: dict[str, Any], source: str) -> ShowCfg:
     if not isinstance(raw, dict):
         raise ConfigError(f"{source}: top level must be a mapping")
 
-    # A missing key keeps the default; an explicit `null` disables the feature.
-    blackout = raw.get("blackout_cc", 119)
-
     show = ShowCfg(
         serial_port=str(raw.get("serial_port", "/dev/ttyACM0")),
         rate_hz=int(raw.get("rate_hz", 100)),
-        midi_port_name=str(raw.get("midi_port_name", "lightshow")),
-        blackout_cc=None if blackout is None else int(blackout),
         global_offset_ms=int(raw.get("global_offset_ms", 0)),
         bus_latency_limit_ms=int(raw.get("bus_latency_limit_ms", 150)),
     )
@@ -722,24 +921,11 @@ def _build(raw: dict[str, Any], source: str) -> ShowCfg:
         )
     show.ports.sort(key=lambda port: port.id)
 
-    models = raw.get("models") or []
-    if not models:
-        raise ConfigError("no models configured")
-    show.models = [_parse_model(entry, show) for entry in models]
-
-    used: dict[tuple[int, int], str] = {}
-    for model in show.models:
-        for channel in model.channels:
-            for cc in (channel.cc, channel.cc_lsb):
-                if cc is None:
-                    continue
-                key = (model.midi_channel, cc)
-                if key in used:
-                    raise ConfigError(
-                        f"MIDI channel {model.midi_channel} CC {cc} is claimed by both "
-                        f"'{used[key]}' and '{model.name}'"
-                    )
-                used[key] = model.name
+    # No models is the state a fresh installation starts in -- the AppImage
+    # ships without any, and the wizard is where they come from. Everything
+    # downstream copes: the mapper builds failsafe frames for the jacks, and a
+    # project says for itself that it needs a model first.
+    show.models = [_parse_model(entry, show) for entry in raw.get("models") or []]
 
     # Several models may share one transmitter as long as their channel blocks
     # do not overlap -- that is how 16 channels feed four models.
@@ -767,8 +953,6 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
     data: dict[str, Any] = {
         "serial_port": show.serial_port,
         "rate_hz": show.rate_hz,
-        "midi_port_name": show.midi_port_name,
-        "blackout_cc": show.blackout_cc,
         "global_offset_ms": show.global_offset_ms,
         "bus_latency_limit_ms": show.bus_latency_limit_ms,
         "tx_ports": [
@@ -791,15 +975,12 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
     for model in show.models:
         entry: dict[str, Any] = {
             "name": model.name,
-            "midi_channel": model.midi_channel,
             "tx_port": model.tx_port,
             "tx_offset": model.tx_offset,
             "channels": [],
         }
         for channel in model.channels:
-            item: dict[str, Any] = {"role": channel.role, "cc": channel.cc}
-            if channel.cc_lsb is not None:
-                item["cc_lsb"] = channel.cc_lsb
+            item: dict[str, Any] = {"role": channel.role}
             if channel.quantize is not None:
                 item["quantize"] = channel.quantize
             if channel.invert:
@@ -807,12 +988,10 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
             item["failsafe"] = channel.failsafe
             entry["channels"].append(item)
 
-        if model.bus is not None:
+        if model.bus.relays:
             entry["bus"] = {
-                "enabled": model.bus.enabled,
                 "relays": [
-                    {"name": relay.name, "cc": relay.cc,
-                     "failsafe": relay.failsafe}
+                    {"name": relay.name, "failsafe": relay.failsafe}
                     for relay in model.bus.relays
                 ],
             }
@@ -821,28 +1000,40 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
             plane = model.plane
             entry["plane"] = {
                 "board": plane.board,
+                "airframe": plane.airframe,
                 "sbus_pin": plane.sbus_pin,
                 "max_brightness": plane.max_brightness,
                 "render_hz": plane.render_hz,
-                "strips": [
+                "outputs": [
                     {
-                        "name": strip.name,
-                        "pin": strip.pin,
-                        "count": strip.count,
-                        "zone": strip.zone,
-                        "offset": strip.offset,
-                        "reverse": strip.reverse,
+                        "name": output.name,
+                        "pin": output.pin,
+                        "count": output.count,
+                        "segments": [
+                            {
+                                "name": segment.name,
+                                "start": segment.start,
+                                "count": segment.count,
+                                "zone": segment.zone,
+                                "offset": segment.offset,
+                                "reverse": segment.reverse,
+                                **({"place": {
+                                    "view": segment.place.view,
+                                    "x1": round(segment.place.x1, 4),
+                                    "y1": round(segment.place.y1, 4),
+                                    "x2": round(segment.place.x2, 4),
+                                    "y2": round(segment.place.y2, 4),
+                                }} if segment.place else {}),
+                            }
+                            for segment in output.segments
+                        ],
                     }
-                    for strip in plane.strips
+                    for output in plane.outputs
                 ],
                 "relays": [
                     {
                         "name": relay.name,
                         "pin": relay.pin,
-                        "zone": relay.zone,
-                        "source": relay.source,
-                        "arg": relay.arg,
-                        "threshold": relay.threshold,
                         "active_low": relay.active_low,
                         "min_on_ms": relay.min_on_ms,
                         "min_off_ms": relay.min_off_ms,
@@ -850,7 +1041,8 @@ def to_dict(show: ShowCfg) -> dict[str, Any]:
                     for relay in plane.relays
                 ],
                 "nav_lights": [
-                    {"strip": nav.strip, "index": nav.index, "color": list(nav.color)}
+                    {"output": nav.output, "index": nav.index,
+                     "color": list(nav.color)}
                     for nav in plane.nav_lights
                 ],
             }
@@ -893,6 +1085,127 @@ def dump(show: ShowCfg) -> str:
 def load_dict(data: dict[str, Any]) -> ShowCfg:
     """Validates plain data the same way load() validates a file."""
     return _build(data, "<web ui>")
+
+
+# ------------------------------------------------------- one model on its own
+
+MODEL_FILE_KIND = "lightshow-modell"
+MODEL_FILE_VERSION = 1
+
+
+def model_document(show: ShowCfg, name: str) -> dict[str, Any]:
+    """One model as a file of its own, carriable to another installation.
+
+    Everything the model needs and nothing it shares: the transmitter's own
+    settings come along because a model is meaningless without knowing what
+    frame it rides in, but they are advisory -- the importing side keeps its own
+    jacks and only reads this to warn when they disagree.
+    """
+    data = to_dict(show)
+    entry = next((m for m in data["models"] if m["name"] == name), None)
+    if entry is None:
+        raise ConfigError(f"kein Modell '{name}'")
+    port = next((p for p in data["tx_ports"] if p["id"] == entry["tx_port"]), None)
+    return {
+        "kind": MODEL_FILE_KIND,
+        "version": MODEL_FILE_VERSION,
+        "model": entry,
+        # Not imported, only compared: two installations rarely agree on which
+        # jack is which, and overwriting a jack that another model rides on
+        # would break that one to make room for this.
+        "tx_port_was": port,
+    }
+
+
+def read_model_document(data: Any) -> dict[str, Any]:
+    """Checks that a file really is one exported model, and hands it back."""
+    if not isinstance(data, dict):
+        raise ConfigError("Modelldatei: oberste Ebene muss ein Objekt sein")
+    if data.get("kind") != MODEL_FILE_KIND:
+        raise ConfigError(
+            "Das ist keine exportierte Modelldatei — erwartet wird "
+            f"kind: {MODEL_FILE_KIND}"
+        )
+    version = data.get("version")
+    if version != MODEL_FILE_VERSION:
+        raise ConfigError(
+            f"Modelldatei in Fassung {version}, gelesen wird "
+            f"{MODEL_FILE_VERSION}"
+        )
+    model = data.get("model")
+    if not isinstance(model, dict) or not model.get("name"):
+        raise ConfigError("Modelldatei: 'model' fehlt oder hat keinen Namen")
+    return data
+
+
+def free_name(taken: set[str], wanted: str) -> str:
+    """`wanted`, or the first `wanted_2`, `wanted_3`, ... that is free."""
+    if wanted not in taken:
+        return wanted
+    for n in range(2, 1000):
+        candidate = f"{wanted}_{n}"
+        if candidate not in taken:
+            return candidate
+    raise ConfigError(f"kein freier Name neben '{wanted}'")
+
+
+def fit_model(show_data: dict[str, Any], model: dict[str, Any]) -> list[str]:
+    """Moves an imported model out of the way of the ones already there.
+
+    Two configurations that never met will collide on nearly everything: both
+    put the light on jack 1 from channel 9. So the model is moved rather than
+    refused -- and every move is reported, because
+    silently renumbering somebody's aircraft is how a model ends up answering to
+    a channel nobody expects.
+
+    Changed in place; returns one sentence per move.
+    """
+    notes: list[str] = []
+    others = show_data.get("models") or []
+
+    wanted = str(model["name"])
+    name = free_name({str(m["name"]) for m in others}, wanted)
+    if name != wanted:
+        notes.append(f"Name '{wanted}' war belegt, heißt jetzt '{name}'")
+        model["name"] = name
+
+    ports = show_data.get("tx_ports") or []
+    block = 8                       # what a bus model occupies, whatever else
+    claimed: dict[int, list[tuple[int, int]]] = {}
+    for other in others:
+        claimed.setdefault(int(other["tx_port"]), []).append(
+            (int(other["tx_offset"]), int(other["tx_offset"]) + block))
+
+    def fits(port_id: int, offset: int) -> bool:
+        port = next((p for p in ports if p["id"] == port_id), None)
+        if port is None or offset + block > int(port["nchan"]):
+            return False
+        return not any(offset < to and start < offset + block
+                       for start, to in claimed.get(port_id, []))
+
+    port_id = int(model.get("tx_port", 0))
+    offset = int(model.get("tx_offset", 0))
+    if not fits(port_id, offset):
+        found = None
+        # The jack it came from first, then any other -- a model that fits where
+        # it was should stay there, even if it has to move along the frame.
+        for candidate in [port_id] + [int(p["id"]) for p in ports]:
+            for start in range(0, 17):
+                if fits(candidate, start):
+                    found = (candidate, start)
+                    break
+            if found:
+                break
+        if found is None:
+            raise ConfigError(
+                "Keine Sender-Buchse hat noch acht freie Kanäle für dieses Modell."
+            )
+        notes.append(
+            f"Kanäle {offset + 1}–{offset + block} auf Buchse {port_id + 1} "
+            f"waren belegt, jetzt Buchse {found[0] + 1} ab Kanal {found[1] + 1}"
+        )
+        model["tx_port"], model["tx_offset"] = found
+    return notes
 
 
 def save(show: ShowCfg, path: str | Path) -> Path:

@@ -333,20 +333,16 @@ def bus_show(zones: int = 4, relays: int = 2):
     from lightshow import config as config_module
 
     channels = []
-    cc = 20
     for _ in range(zones):
-        channels.append(config_module.ChannelCfg("cue", cc, quantize=32,
-                                                 failsafe=1000)); cc += 1
-        channels.append(config_module.ChannelCfg("hue", cc, failsafe=1500)); cc += 1
-        channels.append(config_module.ChannelCfg("brightness", cc,
-                                                 failsafe=1000)); cc += 1
-        channels.append(config_module.ChannelCfg("param", cc, failsafe=1500)); cc += 1
+        channels.append(config_module.ChannelCfg("cue", quantize=32, failsafe=1000))
+        channels.append(config_module.ChannelCfg("hue", failsafe=1500))
+        channels.append(config_module.ChannelCfg("brightness", failsafe=1000))
+        channels.append(config_module.ChannelCfg("param", failsafe=1500))
 
     model = config_module.ModelCfg(
-        name="bus_test", midi_channel=1, tx_port=0, tx_offset=8,
+        name="bus_test", tx_port=0, tx_offset=8,
         channels=channels,
         bus=config_module.BusCfg(
-            enabled=True,
             relays=[config_module.BusRelayCfg(f"r{i}", 100 + i)
                     for i in range(relays)]),
     )
@@ -360,31 +356,37 @@ def wire_symbols(values, model, port):
     return [bus.us_to_symbol(us, port.min_us, port.max_us) for us in block]
 
 
-def test_a_midi_value_reaches_the_firmware_unharmed(bus_decoder):
-    """The whole host path: control change in, decoded zone state out.
+def test_a_scheduled_value_reaches_the_firmware_unharmed(bus_decoder):
+    """The whole host path: a block on the timeline, decoded zone state out.
 
     Every other test here checks one link of the chain. This one runs the real
-    mapper, puts its frame through the microsecond quantisation the radio
+    timeline, puts its frame through the microsecond quantisation the radio
     imposes, and hands the result to the decoder that actually flies.
     """
-    from lightshow.mapping import Mapper
+    from lightshow import project as project_module
+    from lightshow import timeline as timeline_module
 
     show, model, port = bus_show(zones=4, relays=2)
-    mapper = Mapper(show)
+    # Zone 2: cue step 7 of 32, a hue, half brightness, some tempo. The editor
+    # works in 0..255 for everything but the cue, which is a step index.
+    project = project_module.from_dict({
+        "name": "test",
+        "light_tracks": [{"model": "bus_test", "zone": 2, "blocks": [
+            {"start_s": 0, "duration_s": 10, "cue": 7, "hue": 201,
+             "brightness": 129, "param": 201},
+        ]}],
+        "relay_tracks": [
+            {"model": "bus_test", "relay": 0,
+             "blocks": [{"start_s": 0, "duration_s": 10}]},
+            {"model": "bus_test", "relay": 1, "blocks": []},
+        ],
+    })
+    line = timeline_module.Timeline(show, project)
 
-    # Zone 2: cue step 7 of 32, a hue, half brightness, some tempo. Control
-    # changes are seven bit, so 127 is the top of every one of them.
-    mapper.handle_control_change(1, 28, 7 * 4)      # cue of zone 2
-    mapper.handle_control_change(1, 29, 100)        # hue
-    mapper.handle_control_change(1, 30, 64)         # brightness
-    mapper.handle_control_change(1, 31, 100)        # param
-    mapper.handle_control_change(1, 100, 127)       # bus relay 0 on
-    mapper.handle_control_change(1, 101, 0)         # bus relay 1 off
-
-    # The mapper sends one zone per RC frame, so keep asking until zone 2 flies.
+    # The encoder sends one zone per RC frame, so keep asking until zone 2 flies.
     seen = {}
     for _ in range(40):
-        symbols = wire_symbols(mapper.frame(), model, port)
+        symbols = wire_symbols(line.frame(1.0), model, port)
         answer = ask(bus_decoder, ["frame 4 2 " + " ".join(str(s) for s in symbols)])[0]
         assert answer.startswith("ok "), answer
         parts = answer.split()
@@ -395,16 +397,11 @@ def test_a_midi_value_reaches_the_firmware_unharmed(bus_decoder):
 
     assert set(seen) == {0, 1, 2, 3}, f"nicht jede Zone kam dran: {sorted(seen)}"
 
-    # A control change spans 0..127 and the aircraft works in 0..255, so the
-    # value to expect is the scaled one -- and then whatever its field width on
-    # the wire rounds it to.
-    level = lambda cc_value: round(255 * cc_value / 127)
-
     zone2 = seen[2]
     assert int(zone2[2]) == 7                       # cue step survived exactly
-    assert abs(int(zone2[3]) - level(100)) <= 5     # hue, six bits: 4 per step
-    assert abs(int(zone2[4]) - level(64)) <= 2      # brightness, eight bits
-    assert abs(int(zone2[5]) - level(100)) <= 9     # param, five bits: 8 per step
+    assert abs(int(zone2[3]) - 201) <= 5            # hue, six bits: 4 per step
+    assert abs(int(zone2[4]) - 129) <= 2            # brightness, eight bits
+    assert abs(int(zone2[5]) - 201) <= 9            # param, five bits: 8 per step
     assert int(zone2[6]) & 1                        # relay 0 on
     assert not (int(zone2[6]) & 2)                  # relay 1 off
 
@@ -418,8 +415,6 @@ def test_blackout_darkens_every_zone_in_one_frame(bus_decoder):
 
     show, model, port = bus_show(zones=4, relays=2)
     mapper = Mapper(show)
-    mapper.handle_control_change(1, 20, 40)         # zone 0 to some cue
-    mapper.handle_control_change(1, 100, 127)       # a relay on
     mapper.set_blackout(True)
 
     symbols = wire_symbols(mapper.frame(), model, port)

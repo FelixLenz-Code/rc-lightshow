@@ -52,7 +52,7 @@ class CursesMonitor:
         self._last_draw = now
 
         sent = self.session.last_frame if self.session else None
-        blackout, messages, slots = self.mapper.snapshot(sent)
+        blackout, slots = self.mapper.snapshot()
         screen = self.screen
         height, width = screen.getmaxyx()
         screen.erase()
@@ -66,9 +66,8 @@ class CursesMonitor:
 
         rows: list[tuple[str, int]] = [
             (
-                f" lightshow   midi:{self.show.midi_port_name}   link:{link_text}"
-                f"   {self.show.rate_hz} Hz   frames:{self.link.frames_sent}"
-                f"   midi msgs:{messages}",
+                f" lightshow   link:{link_text}"
+                f"   {self.show.rate_hz} Hz   frames:{self.link.frames_sent}",
                 curses.A_REVERSE,
             ),
             ("", 0),
@@ -80,8 +79,7 @@ class CursesMonitor:
                 current_model = slot.model
                 rows.append(
                     (
-                        f" {slot.model.name}  (MIDI ch {slot.model.midi_channel} "
-                        f"-> TX{slot.model.tx_port})",
+                        f" {slot.model.name}  (-> TX{slot.model.tx_port})",
                         curses.A_BOLD,
                     )
                 )
@@ -146,9 +144,9 @@ class PlainMonitor:
         self._last = now
 
         sent = self.session.last_frame if self.session else None
-        blackout, messages, slots = self.mapper.snapshot(sent)
+        blackout, slots = self.mapper.snapshot()
         values = " ".join(
             f"{slot.model.name}.{slot.channel.role}={value}" for slot, value in slots
         )
         state = "BLACKOUT" if blackout else ("ok" if self.link.connected else "link down")
-        print(f"[{state}] frames={self.link.frames_sent} midi={messages} {values}", flush=True)
+        print(f"[{state}] frames={self.link.frames_sent} {values}", flush=True)

@@ -1,0 +1,86 @@
+# Show-Konfiguration fuer die Lightshow-Bridge.
+#
+# Diese Datei wird von der Web-UI geschrieben. Eigene Kommentare gehen dabei
+# verloren -- Notizen also besser in docs/ ablegen.
+#
+#   python -m lightshow --check     Konfiguration pruefen
+#   python -m lightshow --dry-run   ohne Hardware laufen lassen
+
+serial_port: /dev/ttyACM0
+rate_hz: 100
+global_offset_ms: 0
+bus_latency_limit_ms: 150
+tx_ports:
+- id: 0
+  name: buchse1
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 1
+  name: buchse2
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 2
+  name: buchse3
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 3
+  name: buchse4
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 4
+  name: buchse5
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 5
+  name: buchse6
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 6
+  name: buchse7
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 7
+  name: buchse8
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+models: []

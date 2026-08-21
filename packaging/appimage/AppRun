@@ -1,0 +1,91 @@
+#! /bin/bash
+# Start der Bridge aus dem AppImage.
+#
+# Ohne Argumente -- also beim Doppelklick -- laeuft die Bridge still und macht
+# den Browser auf; die Ausgabe geht in ein Log, weil kein Terminal daran haengt.
+# Mit Argumenten verhaelt sie sich wie das Kommando aus dem Quellbaum:
+#
+#     ./Lightshow-x86_64.AppImage --dry-run
+#     ./Lightshow-x86_64.AppImage --check
+#     ./Lightshow-x86_64.AppImage --install-desktop
+#
+# Die Python-Umgebung richtet AppRun.python ein (aus dem python-appimage-
+# Basisimage); dieses Skript setzt nur die eigene Umgebung davor.
+
+set -e
+
+self="$(readlink -f -- "$0")"
+here="${self%/*}"
+export APPDIR="${APPDIR:-$here}"
+
+# Sagt der Bridge, dass ihr Baum read-only ist und sie sich einen
+# beschreibbaren Arbeitsbaum spiegeln soll -- siehe lightshow/paths.py.
+export LIGHTSHOW_APPDIR="$APPDIR"
+
+# Das Image bringt alles mit. Was in ~/.local/lib/python3.12 liegt, gehoert
+# einem anderen Python und wuerde hier nur die mitgelieferten Pakete
+# verdraengen.
+export PYTHONNOUSERSITE=1
+
+data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+workspace="${LIGHTSHOW_ROOT:-$data_home/lightshow}"
+
+desktop_file="$data_home/applications/lightshow.desktop"
+icon_file="$data_home/icons/hicolor/256x256/apps/lightshow.png"
+
+install_desktop() {
+    if [ -z "$APPIMAGE" ]; then
+        echo "kein AppImage-Pfad bekannt -- aus dem entpackten AppDir geht das nicht" >&2
+        return 1
+    fi
+    mkdir -p "${desktop_file%/*}" "${icon_file%/*}"
+    cp -f "$APPDIR/lightshow.png" "$icon_file"
+    sed "s|^Exec=.*|Exec=\"$APPIMAGE\"|" "$APPDIR/lightshow.desktop" > "$desktop_file"
+    chmod 644 "$desktop_file"
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "${desktop_file%/*}" >/dev/null 2>&1 || true
+    fi
+    echo "Menueeintrag angelegt: $desktop_file"
+}
+
+uninstall_desktop() {
+    rm -f "$desktop_file" "$icon_file"
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "${desktop_file%/*}" >/dev/null 2>&1 || true
+    fi
+    echo "Menueeintrag entfernt"
+}
+
+case "$1" in
+    --install-desktop)   install_desktop; exit $? ;;
+    --uninstall-desktop) uninstall_desktop; exit $? ;;
+esac
+
+if [ $# -eq 0 ]; then
+    set -- --no-tui --open-browser
+    # Einmalig, und vor der Umleitung: im Menue sieht das ohnehin niemand.
+    if [ -t 1 ] && [ ! -e "$workspace/.desktop-hinweis" ]; then
+        mkdir -p "$workspace"
+        : > "$workspace/.desktop-hinweis"
+        echo "Tipp: Menueeintrag anlegen mit  ${APPIMAGE:-$0} --install-desktop"
+    fi
+    if [ ! -t 1 ]; then
+        # Vom Menue aus gestartet: die Ausgabe braucht ein Ziel. Eine Zeile je
+        # Sekunde laeuft sonst ewig weiter, also faengt jeder Start neu an und
+        # der Lauf davor bleibt als .1 liegen -- meist der interessantere.
+        log_dir="$state_home/lightshow"
+        mkdir -p "$log_dir"
+        # Angehaengt, nicht ueberschrieben: ein zweiter Klick soll das Log der
+        # laufenden Bridge nicht wegrollen. Eine Zeile je Sekunde laeuft aber
+        # ewig weiter, also uebernimmt die Groesse das Umbrechen.
+        if [ -f "$log_dir/bridge.log" ] &&
+           [ "$(stat -c %s "$log_dir/bridge.log")" -gt 5242880 ]; then
+            mv -f "$log_dir/bridge.log" "$log_dir/bridge.log.1"
+        fi
+        exec >>"$log_dir/bridge.log" 2>&1
+        echo "--- $(date '+%F %T') ---"
+    fi
+fi
+
+exec "$APPDIR/AppRun.python" -m lightshow "$@"

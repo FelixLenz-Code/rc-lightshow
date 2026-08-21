@@ -1,4 +1,13 @@
-"""Turns incoming MIDI control changes into RC channel values in microseconds."""
+"""The channel values the bridge sends when no show is running.
+
+There was a MIDI input here once, turning control changes from a DAW into RC
+channel values. The editor in the interface replaced it, so what is left is the
+other half of the job: the frame that goes out between shows --
+every zone dark, every relay in its failsafe state -- and the blackout switch,
+which has to work whatever the source is.
+
+The show itself is built in `timeline.py`, which writes its own frames.
+"""
 
 from __future__ import annotations
 
@@ -7,84 +16,64 @@ import time
 from dataclasses import dataclass
 
 from . import bus as bus_mode
-from .config import CHANNELS_PER_ZONE, ChannelCfg, ModelCfg, PortCfg, ShowCfg, step_us
+from .config import CHANNELS_PER_ZONE, ChannelCfg, ModelCfg, PortCfg, ShowCfg
 
 
 @dataclass
 class Slot:
-    """One RC channel of one model."""
+    """One RC channel of one model, for the views that list them."""
 
     model: ModelCfg
     port: PortCfg
     channel: ChannelCfg
     port_index: int                # channel index inside the transmitter frame
-    raw: int | None = None         # last received value, None until the first CC
-    msb: int = 0
-    lsb: int = 0
-
-    @property
-    def raw_max(self) -> int:
-        return (1 << self.channel.bits) - 1
 
     def microseconds(self) -> int:
-        if self.raw is None:
-            return self.channel.failsafe
-
-        raw = self.raw
-        if self.channel.invert:
-            raw = self.raw_max - raw
-
-        steps = self.channel.quantize
-        if steps:
-            # Land in the middle of each step so a noisy channel never sits on
-            # a boundary. The airborne decoder splits the range the same way.
-            return step_us(self.port, steps, raw * steps // (self.raw_max + 1))
-        span = self.port.max_us - self.port.min_us
-        return self.port.min_us + round(span * raw / self.raw_max)
+        return self.channel.failsafe
 
 
 class Mapper:
-    """Thread safe: MIDI arrives on the rtmidi thread, frames are read by the sender."""
+    """Thread safe: the interface edits, the sending loop reads."""
 
     def __init__(self, show: ShowCfg) -> None:
         self.show = show
         self._lock = threading.Lock()
         self.blackout = False
-        self.messages = 0
+        self._build()
 
+    def reload(self, show: ShowCfg) -> None:
+        """Takes a freshly edited configuration without a restart.
+
+        Everything below `_build` is derived from the configuration, so a model
+        that changed its zones, its channels or its transmitter leaves stale
+        slots behind. Rebuilding them wholesale is both simpler and safer than
+        patching: there is no partial state to get wrong, and no old slot can
+        survive to keep driving a channel that no longer belongs to it.
+
+        The blackout is deliberately kept -- it belongs to the running session,
+        not to the file.
+        """
+        with self._lock:
+            self.show = show
+            self._build()
+
+    def _build(self) -> None:
         self.slots: list[Slot] = []
-        # (midi_channel, cc) -> (slot, is_lsb)
-        self._by_cc: dict[tuple[int, int], tuple[Slot, bool]] = {}
-        # midi_channel -> slots, for panic handling
-        self._by_midi: dict[int, list[Slot]] = {}
         # Bus models do not own channel positions, so they get an encoder that
         # turns their zone states into the eight values that go on the wire.
         self.bus_encoders: dict[str, bus_mode.Encoder] = {}
         # model name -> its slots in channel order, so a frame does not have to
         # filter the whole slot list once per zone.
         self._slots_by_model: dict[str, list[Slot]] = {}
-        # (midi_channel, cc) -> (encoder, relay index)
-        self._bus_relay_by_cc: dict[tuple[int, int], tuple[bus_mode.Encoder, int]] = {}
-        self._bus_relays_by_midi: dict[int, list[tuple[bus_mode.Encoder, int]]] = {}
 
-        for model in show.models:
-            port = show.port_by_id(model.tx_port)
+        for model in self.show.models:
+            port = self.show.port_by_id(model.tx_port)
             for index, channel in enumerate(model.channels):
-                slot = Slot(
-                    model=model,
-                    port=port,
-                    channel=channel,
-                    port_index=model.tx_offset + index,
-                )
+                slot = Slot(model=model, port=port, channel=channel,
+                            port_index=model.tx_offset + index)
                 self.slots.append(slot)
-                self._by_cc[(model.midi_channel, channel.cc)] = (slot, False)
-                if channel.cc_lsb is not None:
-                    self._by_cc[(model.midi_channel, channel.cc_lsb)] = (slot, True)
-                self._by_midi.setdefault(model.midi_channel, []).append(slot)
                 self._slots_by_model.setdefault(model.name, []).append(slot)
 
-            if not model.uses_bus:
-                continue
             encoder = bus_mode.Encoder(
                 zones=model.zone_count,
                 relays_count=model.bus.relay_count,
@@ -96,66 +85,10 @@ class Mapper:
             self.bus_encoders[model.name] = encoder
             for index, relay in enumerate(model.bus.relays):
                 encoder.set_relay(index, relay.failsafe)
-                key = (model.midi_channel, relay.cc)
-                self._bus_relay_by_cc[key] = (encoder, index)
-                self._bus_relays_by_midi.setdefault(
-                    model.midi_channel, []).append((encoder, index))
-
-    # ------------------------------------------------------------------ input
-
-    def handle_control_change(self, midi_channel: int, cc: int, value: int) -> None:
-        """``midi_channel`` is 1..16, matching what Ardour displays."""
-        with self._lock:
-            self.messages += 1
-
-            if self.show.blackout_cc is not None and cc == self.show.blackout_cc:
-                self.blackout = value >= 64
-                return
-
-            if cc in (120, 123):
-                # All sound off / all notes off: Ardour sends these on stop and
-                # on panic, and a show that keeps glowing after stop is wrong.
-                for slot in self._by_midi.get(midi_channel, []):
-                    slot.raw = None
-                    slot.msb = slot.lsb = 0
-                for encoder, index in self._bus_relays_by_midi.get(midi_channel, []):
-                    encoder.set_relay(index, False)
-                return
-
-            switch = self._bus_relay_by_cc.get((midi_channel, cc))
-            if switch is not None:
-                # A relay is on or off, so it follows the same threshold the
-                # blackout control uses: 64 and above means on.
-                encoder, index = switch
-                encoder.set_relay(index, value >= 64)
-                return
-
-            entry = self._by_cc.get((midi_channel, cc))
-            if entry is None:
-                return
-            slot, is_lsb = entry
-
-            if slot.channel.bits == 7:
-                slot.raw = value
-                return
-
-            if is_lsb:
-                slot.lsb = value
-            else:
-                slot.msb = value
-                # A bare MSB without a following LSB must still move the channel,
-                # so take effect immediately and let the LSB refine it.
-            slot.raw = (slot.msb << 7) | slot.lsb
 
     def set_blackout(self, on: bool) -> None:
         with self._lock:
             self.blackout = on
-
-    def reset(self) -> None:
-        with self._lock:
-            for slot in self.slots:
-                slot.raw = None
-                slot.msb = slot.lsb = 0
 
     # ----------------------------------------------------------------- output
 
@@ -167,13 +100,8 @@ class Mapper:
             values = [
                 [port.min_us] * port.nchan for port in self.show.ports
             ]
-            for slot in self.slots:
-                if slot.model.uses_bus:
-                    continue          # the encoder decides what goes on the wire
-                port_id = slot.model.tx_port
-                values[port_id][slot.port_index] = (
-                    slot.channel.failsafe if blackout else slot.microseconds()
-                )
+            # Nothing writes a channel directly any more: every model's eight
+            # channels are one code word, and the encoder owns all eight.
 
             for model in self.show.models:
                 encoder = self.bus_encoders.get(model.name)
@@ -189,7 +117,7 @@ class Mapper:
             return values
 
     def _load_zones(self, model: ModelCfg, encoder: bus_mode.Encoder) -> None:
-        """Copies the model's MIDI state into its encoder, zone by zone."""
+        """Copies the model's resting state into its encoder, zone by zone."""
         slots = self._slots_by_model.get(model.name, [])
         for zone in range(model.zone_count):
             first = zone * CHANNELS_PER_ZONE
@@ -198,26 +126,13 @@ class Mapper:
                 continue
             encoder.set_zone_us(zone, *(slot.microseconds() for slot in group))
 
-    def snapshot(self, sent: list[list[int]] | None = None
-                 ) -> tuple[bool, int, list[tuple[Slot, int]]]:
-        """(blackout, message count, [(slot, microseconds)]) for the monitor.
+    def snapshot(self) -> tuple[bool, list[tuple[Slot, int]]]:
+        """(blackout, [(slot, microseconds)]) for the monitor.
 
-        ``sent`` is the frame the sending loop last produced. Passing it makes
-        the monitor show what actually goes to the transmitters, which during a
-        running show comes from the project timeline rather than from MIDI.
+        Deliberately not read back off the wire: those eight channels are code
+        symbols of one RS(8,6) frame, and a symbol is not the value it helps
+        encode. The monitor shows what each slot holds.
         """
         with self._lock:
             blackout = self.blackout
-            values = []
-            for slot in self.slots:
-                # A bus model's channels are code symbols, not its values --
-                # reading them back would show the monitor nonsense.
-                if sent is not None and not slot.model.uses_bus \
-                        and slot.model.tx_port < len(sent):
-                    port_values = sent[slot.model.tx_port]
-                    if slot.port_index < len(port_values):
-                        values.append((slot, port_values[slot.port_index]))
-                        continue
-                values.append(
-                    (slot, slot.channel.failsafe if blackout else slot.microseconds()))
-            return blackout, self.messages, values
+            return blackout, [(slot, slot.microseconds()) for slot in self.slots]

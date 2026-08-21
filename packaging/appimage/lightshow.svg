@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Same mark as the favicon in host/lightshow/web/index.html: a lamp on
+       the dark blue of the interface. -->
+  <rect width="256" height="256" rx="56" fill="#1b2430"/>
+  <circle cx="128" cy="128" r="88" fill="none" stroke="#4d9dff" stroke-width="10" opacity="0.35"/>
+  <circle cx="128" cy="128" r="62" fill="none" stroke="#4d9dff" stroke-width="12" opacity="0.65"/>
+  <circle cx="128" cy="128" r="34" fill="#ffffff"/>
+</svg>

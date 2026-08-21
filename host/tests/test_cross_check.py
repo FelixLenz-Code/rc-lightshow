@@ -14,8 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from lightshow.config import ChannelCfg, ModelCfg, PortCfg, ShowCfg
-from lightshow.mapping import Mapper
+from lightshow.config import PortCfg, step_us
 from lightshow.protocol import PortWire, build_channels, build_config
 
 REPO = Path(__file__).resolve().parents[2]
@@ -124,21 +123,18 @@ def decode_table(binaries: Path, args: list[str]) -> dict[int, int]:
 
 @pytest.mark.parametrize("steps", [2, 8, 32, 128])
 def test_every_cue_step_survives_the_round_trip(binaries, steps):
-    """What the ground station encodes must decode to the same step on board."""
+    """What the ground station encodes must decode to the same step on board.
+
+    `step_us` is the one place the host turns a step index into microseconds --
+    the timeline and the link measurement both go through it -- so every index
+    it can produce is checked, not merely the ones some source happened to hit.
+    """
     port = PortCfg(id=0, name="tx", nchan=1)
-    channel = ChannelCfg(role="cue", cc=20, quantize=steps, failsafe=1000)
-    show = ShowCfg(
-        ports=[port],
-        models=[ModelCfg("m", 1, 0, channels=[channel])],
-    )
-    mapper = Mapper(show)
     table = decode_table(binaries, ["step", str(steps), "1000", "2000"])
 
-    for raw in range(128):
-        mapper.handle_control_change(1, 20, raw)
-        us = mapper.frame()[0][0]
-        expected = min(steps - 1, raw * steps // 128)
-        assert table[us] == expected, f"raw {raw} -> {us} us decoded as {table[us]}"
+    for index in range(steps):
+        us = step_us(port, steps, index)
+        assert table[us] == index, f"Stufe {index} -> {us} us decodiert als {table[us]}"
 
 
 def test_quantised_values_keep_a_safety_margin(binaries):
@@ -146,18 +142,12 @@ def test_quantised_values_keep_a_safety_margin(binaries):
     steps = 32
     table = decode_table(binaries, ["step", str(steps), "1000", "2000"])
     port = PortCfg(id=0, name="tx", nchan=1)
-    channel = ChannelCfg(role="cue", cc=20, quantize=steps, failsafe=1000)
-    mapper = Mapper(
-        ShowCfg(ports=[port], models=[ModelCfg("m", 1, 0, channels=[channel])])
-    )
 
-    for raw in range(0, 128, 4):
-        mapper.handle_control_change(1, 20, raw)
-        us = mapper.frame()[0][0]
-        expected = table[us]
+    for index in range(steps):
+        us = step_us(port, steps, index)
         # A whole PPM frame's worth of jitter must not change the step.
         for jitter in (-13, -8, 8, 13):
-            assert table[us + jitter] == expected
+            assert table[us + jitter] == index
 
 
 def test_continuous_channels_agree_at_the_ends_and_middle(binaries):

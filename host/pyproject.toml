@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lightshow"
+version = "0.1.0"
+description = "Ardour MIDI to RC trainer-port bridge for the model aircraft lightshow"
+requires-python = ">=3.10"
+dependencies = [
+    "pyserial>=3.5",
+    "PyYAML>=6.0",
+    # Audio-Wiedergabe und Transportuhr der Show
+    "sounddevice>=0.4",
+    "soundfile>=0.12",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+lightshow = "lightshow.__main__:main"
+
+# Flat layout on purpose: the tests run with cwd = host/ and reach out of the
+# package with parents[2] (test_cross_check.py:21), so a src/ move would ripple
+# through the whole suite for nothing.
+[tool.setuptools]
+packages = ["lightshow"]
+
+[tool.setuptools.package-data]
+lightshow = ["web/*"]

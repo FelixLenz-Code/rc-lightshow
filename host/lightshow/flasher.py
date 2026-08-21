@@ -46,15 +46,34 @@ def toolchain_status() -> dict:
     if not sdk_ok:
         missing.append("PICO_SDK_PATH auf ein pico-sdk-Verzeichnis")
 
+    # The hint names only what this machine is actually missing. Out of an
+    # AppImage that matters more than in a checkout: the toolchain is half a
+    # gigabyte and cannot travel in the image, so this text is the whole
+    # instruction the user gets.
+    packages = []
+    if not cmake:
+        packages.append("cmake")
+    if not compiler:
+        packages += ["gcc-arm-none-eabi", "libnewlib-arm-none-eabi",
+                     "libstdc++-arm-none-eabi-newlib"]
+
+    steps = []
+    if packages:
+        steps.append("sudo apt install " + " ".join(packages))
+    if not sdk_ok:
+        default_sdk = Path.home() / "pico-sdk"
+        if not (default_sdk / "external" / "pico_sdk_import.cmake").is_file():
+            steps.append("git clone --depth 1 --recurse-submodules "
+                         "https://github.com/raspberrypi/pico-sdk ~/pico-sdk")
+        steps.append("export PICO_SDK_PATH=~/pico-sdk")
+
     return {
         "ok": not missing,
         "cmake": cmake,
         "compiler": compiler,
         "sdk": sdk if sdk_ok else None,
         "missing": missing,
-        "hint": ("sudo apt install gcc-arm-none-eabi libnewlib-arm-none-eabi "
-                 "libstdc++-arm-none-eabi-newlib && "
-                 "export PICO_SDK_PATH=~/pico-sdk") if missing else "",
+        "hint": " && ".join(steps),
     }
 
 

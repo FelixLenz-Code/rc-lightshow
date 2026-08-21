@@ -1,7 +1,7 @@
 """Verifies the airborne relay logic.
 
 Two things are worth getting right before a relay hangs in an aircraft: that a
-mechanical one is never switched faster than it can move, and that "cue 0"
+mechanical one is never switched faster than it can move, and that a lost link
 really means everything off. Both are checked here against the firmware's own
 code, compiled for the host.
 """
@@ -16,10 +16,6 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 CTEST = REPO / "tools" / "ctest"
-
-# Mirrors relay_source_t in firmware/plane/src/relay_logic.h.
-SRC_PIXEL, SRC_BRIGHTNESS, SRC_CUE, SRC_CHANNEL = 0, 1, 2, 3
-
 
 @pytest.fixture(scope="session")
 def relay_sim() -> Path:
@@ -43,11 +39,11 @@ def step(relay_sim: Path, min_on: int, min_off: int,
     return out
 
 
-def wants(relay_sim: Path, source: int, arg: int, threshold: int,
-          rows: list[tuple[int, int, int, int, int]]) -> list[int]:
+def wants(relay_sim: Path, rows: list[tuple[int, int]]) -> list[int]:
+    """rows are (bus_on, all_off) -- the only two inputs a relay still has."""
     text = "\n".join(" ".join(str(v) for v in row) for row in rows) + "\n"
     result = subprocess.run(
-        [str(relay_sim), "want", str(source), str(arg), str(threshold)],
+        [str(relay_sim), "want"],
         input=text.encode(), capture_output=True, check=True,
     )
     return [int(line) for line in result.stdout.decode().splitlines()]
@@ -113,35 +109,18 @@ def test_first_sample_adopts_the_requested_state_immediately(relay_sim):
 # ------------------------------------------------------------------ sources --
 
 
-def test_cue_zero_switches_every_source_off(relay_sim):
-    for source in (SRC_PIXEL, SRC_BRIGHTNESS, SRC_CUE, SRC_CHANNEL):
-        # Everything else is at full scale; only the cue is 0.
-        got = wants(relay_sim, source, 0, 0, [(0, 255, 255, 255, 1)])
-        assert got == [0], f"source {source} stayed on at cue 0"
+def test_a_relay_follows_its_bit_and_nothing_else(relay_sim):
+    """One input, one answer. There is no second way to switch a relay."""
+    assert wants(relay_sim, [(0, 0), (1, 0)]) == [0, 1]
 
 
-def test_pixel_source_follows_the_rendered_pixel(relay_sim):
-    rows = [(1, 255, level, 0, 1) for level in (0, 60, 64, 65, 255)]
-    assert wants(relay_sim, SRC_PIXEL, 0, 64, rows) == [0, 0, 0, 1, 1]
+def test_all_off_beats_a_set_bit(relay_sim):
+    """Failsafe, blackout or a frame saying so -- none of it is negotiable.
 
-
-def test_pixel_source_stays_off_when_the_index_is_out_of_range(relay_sim):
-    assert wants(relay_sim, SRC_PIXEL, 0, 0, [(1, 255, 255, 255, 0)]) == [0]
-
-
-def test_brightness_source_uses_its_threshold(relay_sim):
-    rows = [(1, level, 0, 0, 1) for level in (0, 127, 128, 255)]
-    assert wants(relay_sim, SRC_BRIGHTNESS, 0, 127, rows) == [0, 0, 1, 1]
-
-
-def test_cue_source_switches_from_its_cue_upwards(relay_sim):
-    rows = [(cue, 255, 0, 0, 1) for cue in (1, 4, 5, 6, 31)]
-    assert wants(relay_sim, SRC_CUE, 5, 0, rows) == [0, 0, 1, 1, 1]
-
-
-def test_channel_source_uses_its_threshold(relay_sim):
-    rows = [(1, 0, 0, level, 1) for level in (0, 127, 128, 255)]
-    assert wants(relay_sim, SRC_CHANNEL, 7, 127, rows) == [0, 0, 1, 1]
+    Getting this the wrong way round would leave a smoke system running on a
+    model that has lost its link.
+    """
+    assert wants(relay_sim, [(1, 1), (0, 1)]) == [0, 0]
 
 
 def pin_levels(relay_sim: Path, active_low: bool, states: list[int]) -> list[int]:

@@ -11,3 +11,5 @@ firmware/plane/generated/
 *.yaml.bak
 projects/
 *.json.bak
+dist/
+host/*.egg-info/

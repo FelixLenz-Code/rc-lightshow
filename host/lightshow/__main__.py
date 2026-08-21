@@ -1,4 +1,4 @@
-"""Entry point: MIDI in, RC channel frames out.
+"""Entry point: the show editor, and RC channel frames out.
 
     python -m lightshow --config config/show.yaml
     python -m lightshow --dry-run          # no hardware needed
@@ -15,26 +15,28 @@ import time
 from collections import deque
 from pathlib import Path
 
+from . import appwindow
 from . import config as config_module
+from . import paths
 from .link import PicoLink
 from .mapping import Mapper
 from .monitor import CursesMonitor, PlainMonitor
 
-DEFAULT_CONFIG = Path("config/show.yaml")
-
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    # Out of an image the defaults point into the writable workspace, in a
+    # checkout they stay relative to it -- see lightshow/paths.py.
+    default_config = paths.default_config()
+    logs = paths.workspace() if paths.bundled() else Path()
     parser = argparse.ArgumentParser(prog="lightshow", description=__doc__)
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG,
-                        help=f"show configuration (default: {DEFAULT_CONFIG})")
+    parser.add_argument("--config", type=Path, default=default_config,
+                        help=f"show configuration (default: {default_config})")
     parser.add_argument("--serial-port", help="override serial_port from the config")
     parser.add_argument("--dry-run", action="store_true",
                         help="do not open the serial port, just show what would be sent")
     parser.add_argument("--no-tui", action="store_true", help="plain line output")
     parser.add_argument("--check", action="store_true",
                         help="validate the configuration and exit")
-    parser.add_argument("--list-midi", action="store_true",
-                        help="list available MIDI inputs and exit")
     parser.add_argument("--no-web", action="store_true",
                         help="do not start the web interface")
     parser.add_argument("--web-port", type=int, default=8765,
@@ -42,6 +44,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--web-host", default="127.0.0.1",
                         help="bind address; 0.0.0.0 opens it to the network "
                              "so a phone can reach it (default: 127.0.0.1)")
+    parser.add_argument("--open-browser", action="store_true",
+                        help="show the web interface once it is up -- in a window "
+                             "of its own where a browser can do that")
     parser.add_argument("--generate", metavar="MODEL",
                         help="write the airborne config.h for a model and exit")
 
@@ -54,12 +59,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                          help="which zone of the model to sweep (default: 0)")
     measure.add_argument("--sweep-dwell", type=float, default=1.0,
                          help="seconds to hold each value (default: 1.0)")
-    measure.add_argument("--sweep-log", type=Path, default=Path("sweep.csv"),
+    measure.add_argument("--sweep-log", type=Path, default=logs / "sweep.csv",
                          help="where to record what was sent")
     measure.add_argument("--plane-port", metavar="DEVICE",
                          help="serial port of the aircraft's console, recorded "
                               "alongside the sweep on the same clock")
-    measure.add_argument("--plane-log", type=Path, default=Path("meas.csv"),
+    measure.add_argument("--plane-log", type=Path, default=logs / "meas.csv",
                          help="where to record what the aircraft saw")
     measure.add_argument("--analyse", nargs=2, metavar=("SWEEP", "MEAS"),
                          help="evaluate two recordings and print the result")
@@ -67,32 +72,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def describe(show: config_module.ShowCfg) -> str:
-    lines = [f"MIDI port '{show.midi_port_name}', {show.rate_hz} Hz, "
-             f"serial {show.serial_port}"]
+    lines = [f"{show.rate_hz} Hz, serial {show.serial_port}"]
     if show.global_offset_ms:
         lines.append(f"light delayed by {show.global_offset_ms} ms")
     for port in show.ports:
+        # SBUS into the transmitter has never carried a frame in anger; saying
+        # so here means nobody discovers it only when the show does not start.
+        experimental = "  [EXPERIMENTELL]" if port.format == "sbus" else ""
         lines.append(
             f"  TX{port.id} '{port.name}': {port.format} {port.polarity}, "
-            f"{port.nchan} ch, frame {port.frame_us} us, {port.min_us}..{port.max_us} us"
+            f"{port.nchan} ch, frame {port.frame_us} us, "
+            f"{port.min_us}..{port.max_us} us{experimental}"
         )
+    if not show.models:
+        lines.append("  noch keine Modelle -- im Reiter 'Modelle' eines anlegen")
     for model in show.models:
         first = model.tx_offset + 1
         last = model.tx_offset + model.wire_channels
-        if model.uses_bus:
-            # The channel list is zone values, not wire channels -- printing its
-            # length as a channel range would name channels the port has not got.
-            lines.append(
-                f"  model '{model.name}': MIDI ch {model.midi_channel} -> "
-                f"TX{model.tx_port} ch{first}..{last}, Bus mit "
-                f"{model.zone_count} Zone(n) und {model.bus.relay_count} Relais"
-            )
-        else:
-            roles = ", ".join(channel.role for channel in model.channels)
-            lines.append(
-                f"  model '{model.name}': MIDI ch {model.midi_channel} -> "
-                f"TX{model.tx_port} ch{first}..{last} ({roles})"
-            )
+        # The channel list is zone values, not wire channels -- printing its
+        # length as a channel range would name channels the port has not got.
+        lines.append(
+            f"  model '{model.name}': TX{model.tx_port} ch{first}..{last}, Bus mit "
+            f"{model.zone_count} Zone(n) und {model.bus.relay_count} Relais"
+        )
     return "\n".join(lines)
 
 
@@ -103,7 +105,7 @@ def run(show: config_module.ShowCfg, mapper: Mapper, link: PicoLink, monitor,
     history: deque[list[list[int]]] = deque()
     seq = 0
     # With a project loaded the values come from its timeline while the
-    # transport runs, and from MIDI the rest of the time.
+    # transport runs, and from the resting state the rest of the time.
     source = session.frame if session is not None else mapper.frame
 
     stopping = False
@@ -149,15 +151,31 @@ def run(show: config_module.ShowCfg, mapper: Mapper, link: PicoLink, monitor,
         time.sleep(period)
 
 
+def browser_url(host: str, port: int) -> str:
+    """The address to hand the browser -- 0.0.0.0 is not one you can visit."""
+    return f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
+
+
+def already_running(host: str, port: int, timeout: float = 0.4) -> bool:
+    """True when another bridge already answers on that port.
+
+    Double-clicking the launcher twice must not leave a second bridge running
+    blind without its web interface -- it should just show the first one.
+    """
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(browser_url(host, port) + "api/state",
+                                    timeout=timeout) as response:
+            return response.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
+    paths.prepare()          # seeds the workspace when we run from an image
     args = parse_args(argv)
-
-    if args.list_midi:
-        from .midi import list_inputs
-
-        for name in list_inputs():
-            print(name)
-        return 0
 
     try:
         show = config_module.load(args.config)
@@ -185,7 +203,14 @@ def main(argv: list[str] | None = None) -> int:
         print("configuration ok")
         return 0
 
-    from .midi import MidiInput  # imported late so --check works without rtmidi
+    if not args.no_web and already_running(args.web_host, args.web_port):
+        url = browser_url(args.web_host, args.web_port)
+        print(f"a bridge is already running on {url}")
+        if args.open_browser:
+            # Only a window for the bridge that is already running -- this
+            # process is about to go away and must not be the one it follows.
+            appwindow.open_window(url)
+        return 0
 
     mapper = Mapper(show)
     link = PicoLink(show.serial_port, show.wire_ports(), dry_run=args.dry_run)
@@ -204,24 +229,32 @@ def main(argv: list[str] | None = None) -> int:
                      host=args.web_host, port=args.web_port)
         try:
             print(f"web interface: {web.start()}")
+            if args.open_browser:
+                # start() only returns once the socket is bound, so there is
+                # nothing to wait for.
+                kind, which = appwindow.open_window(
+                    browser_url(args.web_host, args.web_port))
+                if kind == appwindow.WINDOW:
+                    print(f"interface: eigenes Fenster ({which})")
+                    # Closing that window is now the way out: without it there
+                    # would be nothing left on screen to stop the bridge with.
+                    web.quit_when_idle = True
+                else:
+                    print("interface: Browser-Tab")
         except OSError as exc:
             print(f"web interface not started: {exc}", file=sys.stderr)
             web = None
 
     use_tui = not args.no_tui and sys.stdout.isatty()
     try:
-        with MidiInput(show.midi_port_name, mapper):
-            if use_tui:
-                def wrapped(screen: "curses._CursesWindow") -> None:
-                    run(show, mapper, link,
-                        CursesMonitor(screen, show, mapper, link, session), session)
+        if use_tui:
+            def wrapped(screen: "curses._CursesWindow") -> None:
+                run(show, mapper, link,
+                    CursesMonitor(screen, show, mapper, link, session), session)
 
-                curses.wrapper(wrapped)
-            else:
-                run(show, mapper, link, PlainMonitor(show, mapper, link, session), session)
-    except OSError as exc:
-        print(f"MIDI error: {exc}", file=sys.stderr)
-        return 1
+            curses.wrapper(wrapped)
+        else:
+            run(show, mapper, link, PlainMonitor(show, mapper, link, session), session)
     finally:
         if web is not None:
             web.stop()
@@ -307,6 +340,13 @@ def run_analysis(show: config_module.ShowCfg, sweep_log: Path,
 
 def repo_root(config_path: Path) -> Path:
     """Walks up from the configuration until the repository root shows up."""
+    # Out of an image the workspace is the answer, whatever the current
+    # directory happens to look like. Otherwise the same AppImage would keep
+    # its projects in two places -- in ~/.local/share when it is started from
+    # the menu, and in the checkout when it is started from a shell that
+    # happens to stand in one.
+    if paths.bundled():
+        return paths.workspace()
     for candidate in [Path.cwd(), *Path(config_path).resolve().parents]:
         if (candidate / "firmware").is_dir() and (candidate / "host").is_dir():
             return candidate

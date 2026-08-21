@@ -1,183 +1,239 @@
 # Show-Konfiguration fuer die Lightshow-Bridge.
 #
-#   python -m lightshow --check              Konfiguration pruefen
-#   python -m lightshow --dry-run            ohne Hardware laufen lassen
-#   python -m lightshow                      Echtbetrieb
+# Diese Datei wird von der Web-UI geschrieben. Eigene Kommentare gehen dabei
+# verloren -- Notizen also besser in docs/ ablegen.
+#
+#   python -m lightshow --check     Konfiguration pruefen
+#   python -m lightshow --dry-run   ohne Hardware laufen lassen
 
 serial_port: /dev/ttyACM0
 rate_hz: 100
-
-# Name des virtuellen ALSA-MIDI-Ports, mit dem sich Ardour verbindet.
-midi_port_name: lightshow
-
-# CC >= 64 auf diesem Controller schaltet sofort alles auf Failsafe.
-# Gilt auf jedem MIDI-Kanal. null schaltet die Funktion ab.
-blackout_cc: 119
-
-# Licht spaeter ausgeben, in Millisekunden. Nur positiv moeglich --
-# um das Licht vorzuziehen, das Audio in Ardour verschieben.
 global_offset_ms: 0
-
-
-# --- Sender -----------------------------------------------------------------
-# Eine Zeile je Fernsteuerung. Hier wird auf eine andere Marke umgestellt:
-#   format:   ppm | sbus | off
-#   polarity: normal | inverted
-#             ppm normal  = positiver Shift (Ruhe low, High-Sync-Pulse)
-#             sbus normal = normales invertiertes SBUS
-#   frame_us: PPM-Framelaenge, bei SBUS der Frameabstand
-#   sync_us:  Breite des PPM-Sync-Pulses (bei SBUS ohne Bedeutung)
-#
-# ids muessen bei 0 anfangen und luecklos sein; id 0 = GPIO2, id 1 = GPIO3, ...
-
-# Eine Zeile je Fernsteuerung -- jedes Modell hat seinen eigenen Empfaenger und
-# damit seinen eigenen Sender. id 0 = GPIO2, id 1 = GPIO3, ... bis id 7 = GPIO9.
-
+bus_latency_limit_ms: 150
 tx_ports:
-  # 16 Kanaele, weil das Licht auf 9..16 liegt -- die Kanaele 1..8 bleiben dem
-  # Fliegen vorbehalten und werden hier nur mitgefuehrt, nie beschrieben.
-  # frame_us folgt aus der Pruefregel nchan * max_us + sync_us + 3000 = 35400.
-  - id: 0
-    name: eule_sender
-    format: ppm
-    polarity: normal
-    nchan: 16
-    frame_us: 35500
-    sync_us: 400
-    min_us: 1000
-    max_us: 2000
-
-  # Zweiter Sender fuer das zweite Modell. Bei einer aelteren Anlage mit
-  # negativem Shift hier polarity: inverted setzen.
-  - id: 1
-    name: falke_sender
-    format: ppm
-    polarity: normal
-    nchan: 8
-    frame_us: 22500
-    sync_us: 400
-    min_us: 1000
-    max_us: 2000
-
-  # Serieller Trainer-Eingang, 16 Kanaele statt 8. Lohnt sich bei einem Modell
-  # mit mehreren Zonen -- vier Kanaele je Zone:
-  # - id: 2
-  #   name: seriell
-  #   format: sbus
-  #   polarity: normal
-  #   nchan: 16
-  #   frame_us: 7000
-  #   min_us: 1000
-  #   max_us: 2000
-
-
-# --- Modelle ----------------------------------------------------------------
-# Ein Block je Flugzeug. midi_channel ist der Kanal, den Ardour anzeigt (1..16).
-#
-# tx_port ist die Buchse am Signalgenerator und damit der Sender, dessen
-# Trainer-Eingang dort haengt. Jedes Modell hat einen eigenen Empfaenger, also
-# auch einen eigenen Sender und eine eigene Buchse: zwei Modelle heissen zwei
-# Ports. Deshalb hat die Bodenstation acht Ausgaenge.
-#
-# tx_offset ist der erste belegte Kanal auf diesem Sender. Bei einem Modell, das
-# auch geflogen wird, muessen die Lichtkanaele UEBER den Flugkanaelen liegen:
-# Kanal 1-8 Knueppel und Schalter, tx_offset: 8, Licht ab Kanal 9. Der Empfaenger
-# gibt die Servokanaele als PWM aus und gleichzeitig alle 16 ueber SBUS.
-# 0 passt nur, wenn das Modell nicht geflogen wird.
-#
-# Kanalrollen (so interpretiert sie die Bordfirmware):
-#   cue         Effektnummer, quantisiert -- Stufe 0 heisst alles aus
-#   hue         Farbton
-#   brightness  Master-Dimmer; mit cc_lsb 14 Bit fuer ruckelfreie Fades
-#   param       Tempo bzw. zweiter Effektparameter
-#
-# Die Reihenfolge ist bindend, nicht bloss Konvention: Bordfirmware und Timeline
-# lesen die vier Kanaele einer Zone ueber ihre Position, den Namen sieht danach
-# niemand mehr an. Vertauscht heisst also, das Modell reagiert auf den falschen
-# Kanal -- ohne dass irgendwo etwas falsch aussieht. Die Pruefung faengt es ab.
-#
-# quantize: Anzahl diskreter Stufen. Der Wert landet in der Mitte seiner Stufe,
-# damit ein verrauschter Kanal nie auf einer Grenze sitzt.
-
-#
-# Der Block `plane` beschreibt die Bordelektronik. Daraus erzeugt die Web-UI
-# (oder `--generate <modell>`) die config.h der Bordfirmware und die
-# Anschlussuebersicht. Zum Flieger fuehrt kein Datenweg ausser den RC-Kanaelen,
-# deshalb muss diese Konfiguration mitgeflasht werden.
-#
-# Die Zahl der Zonen ergibt sich aus den Kanaelen: je vier Kanaele eine Zone.
-
+- id: 0
+  name: eule_sender
+  format: ppm
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 1
+  name: falke_sender
+  format: ppm
+  polarity: normal
+  nchan: 8
+  frame_us: 22500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 2
+  name: buchse3
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35400
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 3
+  name: buchse4
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 4
+  name: buchse5
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 5
+  name: buchse6
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 6
+  name: buchse7
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
+- id: 7
+  name: buchse8
+  format: 'off'
+  polarity: normal
+  nchan: 16
+  frame_us: 35500
+  sync_us: 400
+  min_us: 1000
+  max_us: 2000
 models:
-  - name: eule
-    midi_channel: 1
-    tx_port: 0
-    tx_offset: 8        # Licht ab Kanal 9; 1..8 gehoeren den Knueppeln
-    # Bus-Modus: die acht Kanaele 9..16 tragen einen RS(8,6)-codierten Rahmen
-    # statt vier Werten je Zone. Vier Zonen kommen reihum dran, 142 ms je Zone
-    # bei 35,5 ms Rahmen. Siehe docs/bus-modus.md.
-    bus:
-      enabled: true
-      relays:
-        - {name: rauch,  cc: 100}
-        - {name: blitz,  cc: 101}
-    channels:
-      # Zone 0
-      - {role: cue,        cc: 20, quantize: 32, failsafe: 1000}
-      - {role: hue,        cc: 21,               failsafe: 1500}
-      - {role: brightness, cc: 22, cc_lsb: 54,   failsafe: 1000}
-      - {role: param,      cc: 23,               failsafe: 1500}
-      # Zone 1
-      - {role: cue,        cc: 24, quantize: 32, failsafe: 1000}
-      - {role: hue,        cc: 25,               failsafe: 1500}
-      - {role: brightness, cc: 26, cc_lsb: 58,   failsafe: 1000}
-      - {role: param,      cc: 27,               failsafe: 1500}
-      # Zone 2
-      - {role: cue,        cc: 28, quantize: 32, failsafe: 1000}
-      - {role: hue,        cc: 29,               failsafe: 1500}
-      - {role: brightness, cc: 30, cc_lsb: 62,   failsafe: 1000}
-      - {role: param,      cc: 31,               failsafe: 1500}
-      # Zone 3
-      - {role: cue,        cc: 32, quantize: 32, failsafe: 1000}
-      - {role: hue,        cc: 33,               failsafe: 1500}
-      - {role: brightness, cc: 34, cc_lsb: 66,   failsafe: 1000}
-      - {role: param,      cc: 35,               failsafe: 1500}
-    plane:
-      board: pico
-      max_brightness: 200
-      strips:
-        - {name: flaeche_links,  pin: 2, count: 30, zone: 0, offset: 0, reverse: false}
-        - {name: flaeche_rechts, pin: 3, count: 30, zone: 0, offset: 0, reverse: true}
-      relays:
-        # MOSFET, blitzt im Takt des Effekts -- abgeleitet, kostet keine Bits
-        - {name: scheinwerfer, pin: 6, source: pixel, arg: 0, threshold: 64,
-           active_low: false, min_on_ms: 0, min_off_ms: 0}
-        # Direkt ueber den Bus geschaltet: `arg` ist der Steckplatz in
-        # bus.relays, nicht eine Cue-Nummer.
-        - {name: rauch, pin: 7, source: bus, arg: 0,
-           active_low: true, min_on_ms: 200, min_off_ms: 200}
-        - {name: blitz, pin: 8, source: bus, arg: 1,
-           active_low: false, min_on_ms: 0, min_off_ms: 0}
-      nav_lights:
-        - {strip: 0, index: 0,  color: [255, 0, 0]}
-        - {strip: 1, index: 0,  color: [0, 255, 0]}
-        - {strip: 0, index: 29, color: [255, 255, 255]}
-
-  - name: falke
-    midi_channel: 2
-    tx_port: 1          # eigener Sender, eigene Buchse
-    tx_offset: 0
-    channels:
-      - {role: cue,        cc: 20, quantize: 32, failsafe: 1000}
-      - {role: hue,        cc: 21,               failsafe: 1500}
-      - {role: brightness, cc: 22, cc_lsb: 54,   failsafe: 1000}
-      - {role: param,      cc: 23,               failsafe: 1500}
-    plane:
-      board: pico
-      strips:
-        - {name: rumpf, pin: 2, count: 40, zone: 0, offset: 0, reverse: false}
-      relays:
-        - {name: landelicht, pin: 6, source: brightness, threshold: 100,
-           active_low: true, min_on_ms: 200, min_off_ms: 200}
-      nav_lights:
-        - {strip: 0, index: 0,  color: [255, 0, 0]}
-        - {strip: 0, index: 39, color: [255, 255, 255]}
+- name: eule
+  tx_port: 0
+  tx_offset: 8
+  channels:
+  - role: cue
+    quantize: 32
+    failsafe: 1000
+  - role: hue
+    failsafe: 1500
+  - role: brightness
+    failsafe: 1000
+  - role: param
+    failsafe: 1500
+  - role: cue
+    quantize: 32
+    failsafe: 1000
+  - role: hue
+    failsafe: 1500
+  - role: brightness
+    failsafe: 1000
+  - role: param
+    failsafe: 1500
+  - role: cue
+    quantize: 32
+    failsafe: 1000
+  - role: hue
+    failsafe: 1500
+  - role: brightness
+    failsafe: 1000
+  - role: param
+    failsafe: 1500
+  - role: cue
+    quantize: 32
+    failsafe: 1000
+  - role: hue
+    failsafe: 1500
+  - role: brightness
+    failsafe: 1000
+  - role: param
+    failsafe: 1500
+  bus:
+    relays:
+    - name: rauch
+      failsafe: false
+    - name: blitz
+      failsafe: false
+  plane:
+    board: pico
+    airframe: motor
+    sbus_pin: 5
+    max_brightness: 200
+    render_hz: 200
+    outputs:
+    - name: flaeche_links
+      pin: 2
+      count: 30
+      segments:
+      - name: aussen
+        start: 0
+        count: 30
+        zone: 0
+        offset: 0
+        reverse: false
+        place:
+          view: top
+          x1: 0.1015
+          y1: 0.3585
+          x2: 0.4333
+          y2: 0.3566
+    - name: flaeche_rechts
+      pin: 3
+      count: 30
+      segments:
+      - name: aussen
+        start: 0
+        count: 30
+        zone: 0
+        offset: 0
+        reverse: true
+        place:
+          view: top
+          x1: 0.8903
+          y1: 0.36
+          x2: 0.5451
+          y2: 0.3605
+    relays:
+    - name: rauch
+      pin: 7
+      active_low: true
+      min_on_ms: 200
+      min_off_ms: 200
+    - name: blitz
+      pin: 8
+      active_low: false
+      min_on_ms: 0
+      min_off_ms: 0
+    nav_lights:
+    - output: 0
+      index: 0
+      color: [255, 0, 0]
+    - output: 1
+      index: 0
+      color: [0, 255, 0]
+    - output: 0
+      index: 29
+      color: [255, 255, 255]
+- name: falke
+  tx_port: 1
+  tx_offset: 0
+  channels:
+  - role: cue
+    quantize: 32
+    failsafe: 1000
+  - role: hue
+    failsafe: 1500
+  - role: brightness
+    failsafe: 1000
+  - role: param
+    failsafe: 1500
+  bus:
+    relays:
+    - name: landelicht
+      failsafe: false
+  plane:
+    board: modell-2led-2relais-v1
+    airframe: motor
+    sbus_pin: 5
+    max_brightness: 200
+    render_hz: 200
+    outputs:
+    - name: rumpf
+      pin: 2
+      count: 40
+      segments:
+      - name: ganz
+        start: 0
+        count: 40
+        zone: 0
+        offset: 0
+        reverse: false
+    relays:
+    - name: landelicht
+      pin: 6
+      active_low: true
+      min_on_ms: 200
+      min_off_ms: 200
+    nav_lights:
+    - output: 0
+      index: 0
+      color: [255, 0, 0]
+    - output: 0
+      index: 39
+      color: [255, 255, 255]

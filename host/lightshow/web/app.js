@@ -163,6 +163,17 @@ function drawStrip(canvas, pixels, count) {
 let lastFrame = 0;
 function animate(now) {
   requestAnimationFrame(animate);
+  // Der Abspielkopf vor der Drossel: er ist das, worauf das Auge liegt, und
+  // kostet eine Transformation. Die LED-Vorschauen dahinter kosten mehr und
+  // kommen mit dreissig Bildern aus.
+  if (CLOCK && VIEW === 'show') {
+    const at = CLOCK.at + (now - CLOCK.stamp) / 1000;
+    POSITION = at;
+    refreshPlayhead(at);
+    $('clock').textContent = fmtTime(at);
+    followPlayhead(at);
+  }
+
   if (now - lastFrame < 33) return;                 // ~30 fps is plenty
   lastFrame = now;
 
@@ -199,6 +210,14 @@ let POSITION = 0;
 let SEEK_HINT = null;
 let FOLLOW = true;
 
+/* The bridge reports the position five times a second. Drawing the playhead
+   only then makes it hop in eight pixel steps at the standard zoom, which is
+   what a playhead must not do -- it is the one thing on screen the eye follows.
+   So the last report is kept with the moment it arrived, and the frame loop
+   carries it forward from there. Each new report puts it right again; on
+   loopback the correction is a millisecond or two, well under a pixel. */
+let CLOCK = null;         // {at, stamp} -- last word from the bridge
+
 const ITEM_EL = new Map();
 
 const cueName = (index) => CUES[index] || `Effekt ${index}`;
@@ -218,9 +237,60 @@ applyTheme(theme);
 $('btn-theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; applyTheme(theme); };
 $('btn-help').onclick = () => $('help').showModal();
 
+/* ====================================================================== quit */
+
+/* Two steps, because there is no undo: a stray click leaves dark models on the
+   field and the way back is a terminal. In the second step the confirming
+   button sits left of "Abbrechen", so clicking the same spot twice cancels
+   instead of switching the bridge off. */
+
+let SHUTDOWN = false;
+let EVENTS = null;
+
+function quitStep(which) {
+  ['quit-step1', 'quit-step2'].forEach(
+    (id) => $(id).classList.toggle('hidden', id !== which));
+}
+
+$('btn-quit').onclick = () => {
+  const live = !!(STATE && STATE.locked);
+  $('quit-playing').classList.toggle('hidden', !live);
+  quitStep('quit-step1');
+  $('quit').showModal();
+};
+
+$('quit-cancel1').onclick = () => $('quit').close();
+$('quit-cancel2').onclick = () => $('quit').close();
+$('quit-next').onclick = () => quitStep('quit-step2');
+
+$('quit-confirm').onclick = async () => {
+  $('quit-confirm').disabled = true;
+  const answer = await post('/api/quit');
+  if (!answer.ok) {
+    $('quit-confirm').disabled = false;
+    toast(answer.error || 'Ausschalten abgelehnt', 'err');
+    return;
+  }
+  SHUTDOWN = true;
+  if (EVENTS) EVENTS.close();     // sonst versucht der Browser ewig weiter
+  // Nur eine Meldung: die Sperrfläche deckt den ganzen Schirm und lässt sich
+  // nicht wegklicken, ein Dialog davor sagte dasselbe noch einmal.
+  $('quit').close();
+  showOffline();
+};
+
+function showOffline() {
+  $('led-pico').className = 'led bad';
+  $('offline-title').textContent = SHUTDOWN ? 'Bridge ausgeschaltet'
+                                            : 'Bridge nicht erreichbar';
+  $('offline-lost').classList.toggle('hidden', SHUTDOWN);
+  $('offline-off').classList.toggle('hidden', !SHUTDOWN);
+  $('offline').classList.remove('hidden');
+}
+
 /* ===================================================================== views */
 
-const VIEWS = ['show', 'stage', 'models', 'wiring'];
+const VIEWS = ['show', 'projects', 'stage', 'models', 'wiring'];
 
 function showView(name) {
   VIEW = name;
@@ -229,6 +299,7 @@ function showView(name) {
   VIEWS.forEach((other) => $('view-' + other).classList.toggle('hidden', other !== name));
   $('project-bar').classList.toggle('hidden', name !== 'show');
 
+  if (name === 'projects') loadProjects();
   if (name === 'wiring') { fillWiringModels(); loadWiring(); refreshToolchain(); }
   if (name === 'stage' && STATE) renderStage(STATE);
   if (name === 'show') layoutTimeline();
@@ -241,7 +312,11 @@ document.querySelectorAll('.rail button.nav').forEach((button) => {
 /* ================================================================== projects */
 
 let applyTimer = null;
+let saveTimer = null;
 let lastApplyError = '';
+let PROJECTS = [];        // what /api/projects last said, for the tab
+let PROJECT_MODELS = [];  // and which models a new one could be built from
+let PROJECT_OPEN = null;  // the folder name of the open project
 
 /**
  * Marks the project changed and pushes the edit to the bridge.
@@ -255,10 +330,26 @@ let lastApplyError = '';
  */
 function markDirty(dirty = true) {
   DIRTY = dirty;
-  $('btn-project-save').textContent = dirty ? 'Speichern •' : 'Speichern';
+  showProjectState();
   if (!dirty) return;
   clearTimeout(applyTimer);
   applyTimer = setTimeout(pushEdit, 300);
+  // And on disk. Separate timer and a longer wait on purpose: the apply above
+  // is what makes an edit audible and has to be quick, while writing is what
+  // makes it survive and can wait for the hand to come off the mouse. Dragging
+  // a block across a minute of timeline is one write, not ninety.
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveProject({quiet: true}), 900);
+}
+
+/* The one thing the show bar still says: which project, and whether the disk
+ * has caught up with the screen. */
+function showProjectState() {
+  $('project-name').textContent = PROJ ? PROJ.name : 'keines geöffnet';
+  const state = $('project-state');
+  $('btn-project-close').classList.toggle('hidden', !PROJ);
+  if (!PROJ) { state.textContent = ''; return; }
+  state.textContent = DIRTY ? 'wird gespeichert …' : 'gespeichert';
 }
 
 async function pushEdit() {
@@ -278,55 +369,165 @@ window.addEventListener('beforeunload', (event) => {
   event.returnValue = '';
 });
 
-/** Points the selector at the open project, adding it if the list is stale. */
-function syncProjectSelect(dir) {
-  if (!dir) return;
-  const select = $('project-select');
-  if (![...select.options].some((option) => option.value === dir)) {
-    const option = document.createElement('option');
-    option.value = dir;
-    option.textContent = dir;
-    select.append(option);
-  }
-  select.value = dir;
+async function loadProjects() {
+  const answer = await api('/api/projects');
+  PROJECTS = answer.projects || [];
+  PROJECT_MODELS = answer.models || [];
+  PROJECT_OPEN = answer.open || null;
+  renderProjects();
 }
 
-async function loadProjects(select) {
-  const answer = await api('/api/projects');
-  const list = answer.projects || [];
-  $('project-select').innerHTML = list.length
-    ? list.map((entry) => `<option value="${esc(entry.dir)}">${esc(entry.name)}</option>`).join('')
-    : '<option value="">— keine Projekte —</option>';
-  if (select) $('project-select').value = select;
+function renderProjects() {
+  const box = $('projects');
+  if (!PROJECTS.length) {
+    box.innerHTML = `<div class="note">Noch kein Projekt.
+      <b>＋ Neues Projekt</b> fragt nach einem Namen und den Modellen und legt
+      die Spuren an.</div>`;
+    return;
+  }
+  box.innerHTML = PROJECTS.map(projectCard).join('');
+  box.querySelectorAll('button[data-open]').forEach((button) => {
+    button.onclick = () => openProject(button.dataset.open);
+  });
+  box.querySelectorAll('button[data-sweep]').forEach((button) => {
+    button.onclick = async () => {
+      const dir = button.dataset.sweep;
+      const entry = PROJECTS.find((p) => p.dir === dir) || {};
+      if (!confirm(`${entry.spare_audio} Audiodatei(en) aus `
+          + `projects/${dir}/audio löschen? Kein Clip zeigt darauf, `
+          + 'zurückholen lässt sich das nicht.')) return;
+      const answer = await post('/api/project/sweep-audio', {dir});
+      if (!answer.ok) return toast(answer.error, 'err', 10000);
+      await loadProjects();
+      toast(`${answer.files.length} Datei(en) gelöscht, `
+            + `${megabytes(answer.bytes)} frei.`, 'ok', 5000);
+    };
+  });
+  box.querySelectorAll('button[data-export]').forEach((button) => {
+    button.onclick = async () => {
+      const dir = button.dataset.export;
+      if (await saveFrom('/api/project/export/' + encodeURIComponent(dir),
+                         `${dir}.zip`, ZIP_TYPES))
+        toast(`Projekt '${dir}' gespeichert.`, 'ok', 3000);
+    };
+  });
+  // Any project, open or not. Having to load one first would mean playing it by
+  // accident and losing the place in the one that was already there, for the
+  // sake of renaming it.
+  box.querySelectorAll('button[data-edit]').forEach((button) => {
+    button.onclick = () => {
+      if (LOCKED) return toast('Während einer laufenden Show gesperrt.', 'warn', 4000);
+      const dir = button.dataset.edit;
+      const entry = PROJECTS.find((p) => p.dir === dir);
+      if (!entry) return;
+      // The open one is edited through what the editor holds, so a rename lands
+      // on the same object the timeline is drawn from; a closed one out of what
+      // the listing says, which is name and models -- all the dialogue asks for.
+      const held = dir === PROJECT_OPEN && PROJ ? PROJ : entry;
+      pwOpen(PROJECT_MODELS, held, dir);
+    };
+  });
+}
+
+function projectCard(entry) {
+  const open = entry.dir === PROJECT_OPEN;
+  const models = entry.models && entry.models.length
+    ? entry.models.map(esc).join(', ')
+    : '<span class="warn-text">kein Modell eingetragen</span>';
+  return `<div class="card model-row">
+    <div class="card-head">
+      <h2>${esc(entry.name)}</h2>
+      ${open ? '<span class="tag ok-text">geöffnet</span>' : ''}
+      <span class="grow"></span>
+      <button class="quiet" data-export="${esc(entry.dir)}"
+        title="Als Zip mit Musik und Spuren sichern">Exportieren</button>
+      <button data-edit="${esc(entry.dir)}">Bearbeiten</button>
+      <button data-open="${esc(entry.dir)}" ${open ? 'class="quiet"' : ''}
+        >${open ? 'Erneut laden' : 'Öffnen'}</button>
+    </div>
+    <div class="card-body">
+      <div class="model-facts">
+        <span>Modelle <b>${models}</b></span>
+        <span>${entry.tracks} Spur${entry.tracks === 1 ? '' : 'en'}</span>
+        <span class="dim">projects/${esc(entry.dir)}</span>
+      </div>
+      ${entry.spare_audio ? `<div class="note" style="margin-top:10px">
+        ${entry.spare_audio} Audiodatei${entry.spare_audio === 1 ? '' : 'en'}
+        (${megabytes(entry.spare_bytes)}) im Projektordner, auf die kein Clip
+        zeigt. Eine Datei, die aus der Timeline fliegt, wird mitgelöscht — das
+        hier lag schon vorher da oder wurde von Hand hineinkopiert.
+        <button class="quiet" data-sweep="${esc(entry.dir)}"
+          style="margin-left:8px">Aufräumen</button>
+      </div>` : ''}
+    </div>
+  </div>`;
+}
+
+const megabytes = (bytes) => bytes >= 1024 * 1024
+  ? `${(bytes / 1024 / 1024).toFixed(1).replace('.', ',')} MB`
+  : `${Math.max(1, Math.round(bytes / 1024))} kB`;
+
+/* Puts the show down without putting anything else up.
+ *
+ * The bridge hands the audio device back and falls to the resting state,
+ * which is what it does with no project at all. */
+async function closeProject() {
+  if (!PROJ) return;
+  const name = PROJ.name;
+  clearTimeout(saveTimer);
+  // Anything still in the 900 ms window would otherwise be lost.
+  if (DIRTY) await saveProject({quiet: true});
+  const answer = await post('/api/project/close');
+  if (!answer.ok) return toast(answer.error || 'nicht geschlossen', 'err', 8000);
+  PROJECT_OPEN = null;
+  applyProject(null);
+  renderProjects();
+  toast(`Projekt „${name}“ geschlossen.`, 'ok', 3000);
+}
+
+async function openProject(dir) {
+  if (!dir) return;
+  // Nothing to warn about any more: an edit is on disk within a second of
+  // being made, so switching project cannot lose one.
+  const answer = await post('/api/project/open', {dir});
+  if (!answer.ok) return toast(answer.error, 'err');
+  markDirty(false);
+  applyProject(answer.project);
+  PROJECT_OPEN = dir;
+  renderProjects();
+  showView('show');
+  toast(`Projekt „${answer.project.data.name}“ geöffnet.`, 'ok', 3000);
+}
+
+const LIST_NAMES = {audio: 'audio_tracks', light: 'light_tracks',
+                    relay: 'relay_tracks'};
+
+/** Which of the project's three track lists this one is in. */
+function listNameOf(track) {
+  if (PROJ.audio_tracks.includes(track)) return 'audio';
+  if (PROJ.light_tracks.includes(track)) return 'light';
+  return 'relay';
 }
 
 function selectionAddress() {
   if (!SEL || !PROJ) return null;
-  if (SEL.kind === 'track') {
-    const audio = PROJ.audio_tracks.indexOf(SEL.track);
-    return audio >= 0
-      ? {kind: 'track', list: 'audio', track: audio}
-      : {kind: 'track', list: 'light', track: PROJ.light_tracks.indexOf(SEL.track)};
-  }
-  const clip = SEL.kind === 'clip';
-  const tracks = clip ? PROJ.audio_tracks : PROJ.light_tracks;
+  const list = listNameOf(SEL.track);
+  const tracks = PROJ[LIST_NAMES[list]] || [];
   const trackIndex = tracks.indexOf(SEL.track);
   if (trackIndex < 0) return null;
-  const items = clip ? SEL.track.clips : SEL.track.blocks;
-  return {kind: SEL.kind, track: trackIndex, item: items.indexOf(SEL.item)};
+  if (SEL.kind === 'track') return {kind: 'track', list, track: trackIndex};
+  const items = SEL.kind === 'clip' ? SEL.track.clips : SEL.track.blocks;
+  return {kind: SEL.kind, list, track: trackIndex, item: items.indexOf(SEL.item)};
 }
 
 function restoreSelection(address) {
   if (!address || !PROJ) return;
-  if (address.kind === 'track') {
-    const tracks = address.list === 'audio' ? PROJ.audio_tracks : PROJ.light_tracks;
-    if (tracks[address.track]) SEL = {kind: 'track', track: tracks[address.track]};
-    return;
-  }
-  const clip = address.kind === 'clip';
-  const track = (clip ? PROJ.audio_tracks : PROJ.light_tracks)[address.track];
+  const tracks = PROJ[LIST_NAMES[address.list]] || [];
+  const track = tracks[address.track];
   if (!track) return;
-  const item = (clip ? track.clips : track.blocks)[address.item];
+  if (address.kind === 'track') { SEL = {kind: 'track', track}; return; }
+  const items = address.kind === 'clip' ? track.clips : track.blocks;
+  const item = items[address.item];
   if (item) SEL = {kind: address.kind, track, item};
 }
 
@@ -345,7 +546,7 @@ function applyProject(payload) {
   PEAKS = payload.peaks || [];
   CUES = payload.cue_names || [];
   markDirty(false);
-  syncProjectSelect(payload.dir);
+  PROJECT_OPEN = payload.dir || PROJECT_OPEN;
 
   const messages = [...(payload.warnings || []), ...(payload.audio_messages || [])];
   if (messages.length) toast(messages.join(' · '), 'err', 12000);
@@ -360,52 +561,215 @@ async function loadProject() {
   applyProject((await api('/api/project')).project);
 }
 
-$('btn-project-open').onclick = async () => {
-  const dir = $('project-select').value;
-  if (!dir) return;
-  if (DIRTY && !confirm('Es gibt ungespeicherte Änderungen. Trotzdem ein anderes Projekt öffnen?'))
-    return;
-  markDirty(false);
-  const answer = await post('/api/project/open', {dir});
-  if (answer.ok) applyProject(answer.project);
-  else toast(answer.error, 'err');
+/* Hands the browser a file to save.
+ *
+ * A link with `download` rather than anything cleverer: the interface is served
+ * from the same machine the file is on, so there is nothing to arrange -- the
+ * browser asks where to put it and that is the whole transaction.
+ */
+function download(url, filename) {
+  const link = document.createElement('a');
+  link.href = url;
+  if (filename) link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+/* Fragt, wohin die Datei soll.
+ *
+ * Ein <a download> fragt nicht: der Browser legt die Datei dort ab, wo er
+ * Downloads ablegt, und meldet das in einer Blase an der Werkzeugleiste -- die
+ * es im eigenen Anwendungsfenster gar nicht gibt, weshalb dort nicht einmal zu
+ * sehen ist, dass etwas passiert ist. `showSaveFilePicker` gibt es in der
+ * Chromium-Familie und braucht einen sicheren Kontext; 127.0.0.1 gilt als
+ * einer. Wo es das nicht gibt, bleibt es beim alten Weg.
+ *
+ * Rueckgabe: der Dateigriff, `null` nach Abbruch, `undefined` wenn dieser
+ * Browser nicht fragen kann.
+ */
+async function askWhereToSave(filename, types) {
+  if (!window.showSaveFilePicker) return undefined;
+  try {
+    return await window.showSaveFilePicker({suggestedName: filename, types});
+  } catch (error) {
+    // Abbrechen ist keine Panne; alles andere (etwa eine abgelaufene
+    // Nutzergeste) faellt auf den Download zurueck.
+    return error.name === 'AbortError' ? null : undefined;
+  }
+}
+
+const JSON_TYPES = [{description: 'Lightshow-Modell',
+                     accept: {'application/json': ['.json']}}];
+const ZIP_TYPES = [{description: 'Lightshow-Projekt',
+                    accept: {'application/zip': ['.zip']}}];
+
+/** True, wenn gespeichert wurde -- false nur bei Abbruch. */
+async function saveJson(data, filename) {
+  const text = JSON.stringify(data, null, 2);
+  const handle = await askWhereToSave(filename, JSON_TYPES);
+  if (handle === null) return false;
+  if (handle) {
+    try {
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+    } catch (error) {
+      toast(`Speichern fehlgeschlagen: ${error.message}`, 'err', 8000);
+      return false;
+    }
+    return true;
+  }
+  download(URL.createObjectURL(
+    new Blob([text], {type: 'application/json'})), filename);
+  return true;
+}
+
+/* Dasselbe fuer etwas, das die Bridge liefert. Der Inhalt wird durchgereicht,
+ * nicht erst eingesammelt: ein Projekt bringt seine Audiodateien mit und kann
+ * dreistellige Megabytes haben. */
+async function saveFrom(url, filename, types) {
+  const handle = await askWhereToSave(filename, types);
+  if (handle === null) return false;
+  if (!handle) { download(url, filename); return true; }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    toast(`Speichern fehlgeschlagen (HTTP ${response.status}).`, 'err', 8000);
+    return false;
+  }
+  try {
+    await response.body.pipeTo(await handle.createWritable());
+  } catch (error) {
+    toast(`Speichern fehlgeschlagen: ${error.message}`, 'err', 8000);
+    return false;
+  }
+  return true;
+}
+
+async function exportModel(name) {
+  const answer = await api('/api/model/export/' + encodeURIComponent(name));
+  if (!answer.ok) return toast(answer.error, 'err', 8000);
+  if (await saveJson(answer.document, `${name}.lightshow-modell.json`))
+    toast(`Modell '${name}' exportiert.`, 'ok', 3000);
+}
+
+/* Reads a file the user picked and hands it to the bridge.
+ *
+ * Both importers report what they had to change rather than only whether it
+ * worked: two configurations that never met collide on nearly everything, and
+ * a model that was quietly renumbered is a model answering to a channel nobody
+ * expects. */
+$('btn-model-import').onclick = () => $('file-model').click();
+$('file-model').onchange = async (event) => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  let document_;
+  try {
+    document_ = JSON.parse(await file.text());
+  } catch (error) {
+    return toast(`${file.name} ist keine lesbare Modelldatei: ${error}`, 'err', 10000);
+  }
+  const answer = await post('/api/model/import', {document: document_});
+  if (!answer.ok) return toast(answer.error, 'err', 12000);
+  await loadConfig();
+  const notes = answer.notes || [];
+  note($('config-note'), [`Modell '${answer.name}' importiert.`, ...notes],
+       notes.length ? 'warn' : 'ok');
+  toast(`Modell '${answer.name}' importiert.`, 'ok', 4000);
 };
 
-$('btn-project-new').onclick = async () => {
-  const name = (prompt('Name des neuen Projekts:', 'Nachtflug') || '').trim();
-  if (!name) return;
-  const answer = await post('/api/project/new', {name});
-  if (!answer.ok) return toast(answer.error, 'err');
+$('btn-project-import').onclick = () => $('file-project').click();
+$('file-project').onchange = async (event) => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  const answer = await (await fetch('/api/project/import?name='
+    + encodeURIComponent(file.name.replace(/\.lightshow-projekt\.zip$|\.zip$/, '')),
+    {method: 'POST', body: await file.arrayBuffer()})).json();
+  if (!answer.ok) return toast(answer.error, 'err', 12000);
   await loadProjects();
-  applyProject(answer.project);
-  toast(`Projekt „${name}“ angelegt.`, 'ok', 3000);
+  const notes = answer.notes || [];
+  toast(`Projekt „${answer.name}“ importiert.`
+        + (notes.length ? ' ' + notes.join(' · ') : ''),
+        notes.length ? 'warn' : 'ok', notes.length ? 12000 : 4000);
 };
 
-async function saveProject(quiet = false) {
+$('btn-project-close').onclick = () => closeProject();
+
+/* The wizard lives in projectwiz.js; this is the only way in. */
+$('btn-project-create').onclick = () => {
+  if (LOCKED) return toast('Während einer laufenden Show gesperrt.', 'warn', 4000);
+  pwOpen(PROJECT_MODELS);
+};
+
+/* Writes the project.
+ *
+ * Called on a timer after every edit, and by Ctrl+S for anyone who does not
+ * believe it. The saved project is deliberately *not* read back into the
+ * editor: the answer is the same thing that was sent, and reapplying it would
+ * rebuild every track element and take the selection with it -- in the middle
+ * of the drag that triggered the save.
+ */
+async function saveProject({quiet = false} = {}) {
   if (!PROJ) return false;
   const answer = await post('/api/project', {project: PROJ});
-  if (!answer.ok) { toast(answer.error, 'err', 12000); return false; }
-  applyProject(answer.project);
+  if (!answer.ok) {
+    // Left dirty on purpose: the timer will try again on the next edit, and
+    // the show bar keeps saying so in the meantime.
+    toast(answer.error, 'err', 12000);
+    return false;
+  }
+  clearTimeout(saveTimer);
+  DIRTY = false;
+  showProjectState();
+  // Worth saying out loud: the file is gone from the disk, not just from the
+  // timeline, and that is not something to find out later.
+  const gone = answer.removed_audio || [];
+  if (gone.length) {
+    toast(`${gone.map((f) => f.replace(/^audio\//, '')).join(', ')} `
+          + `${gone.length === 1 ? 'wird' : 'werden'} nicht mehr gebraucht und `
+          + `${gone.length === 1 ? 'wurde' : 'wurden'} aus dem Projekt gelöscht.`,
+          'ok', 7000);
+  }
   if (!quiet) toast('Gespeichert.', 'ok', 2000);
   return true;
 }
 
-$('btn-project-save').onclick = () => saveProject();
-
 /* ============================================================ timeline model */
 
 const MIN_LENGTH = 0.1;
+
+/** The relay a relay track drives, as the state payload describes it. */
+function relayOf(track) {
+  const model = STATE && STATE.models.find((entry) => entry.name === track.model);
+  return model && model.relays ? model.relays[track.relay] || null : null;
+}
+
+const relayName = (track) => {
+  const relay = relayOf(track);
+  return relay ? `${track.model} · ${relay.name}` : `${track.model} Relais ${track.relay + 1}`;
+};
 
 function laneList() {
   if (!PROJ) return [];
   return [
     ...PROJ.audio_tracks.map((track, index) => ({kind: 'audio', track, index})),
     ...PROJ.light_tracks.map((track, index) => ({kind: 'light', track, index})),
+    ...(PROJ.relay_tracks || []).map((track, index) => ({kind: 'relay', track, index})),
   ];
 }
 
 function itemsOf(lane) {
   return lane.kind === 'audio' ? lane.track.clips : lane.track.blocks;
+}
+
+/** The project list a track belongs to, whatever kind it is. */
+function listOf(track) {
+  if (PROJ.audio_tracks.includes(track)) return PROJ.audio_tracks;
+  if (PROJ.light_tracks.includes(track)) return PROJ.light_tracks;
+  return PROJ.relay_tracks || [];
 }
 
 function laneOf(track) {
@@ -426,6 +790,8 @@ function projectEnd() {
   for (const track of PROJ.audio_tracks)
     for (const clip of track.clips) end = Math.max(end, clip.start_s + clipLength(track, clip));
   for (const track of PROJ.light_tracks)
+    for (const block of track.blocks) end = Math.max(end, block.start_s + block.duration_s);
+  for (const track of (PROJ.relay_tracks || []))
     for (const block of track.blocks) end = Math.max(end, block.start_s + block.duration_s);
   return end;
 }
@@ -469,8 +835,10 @@ function buildTimeline() {
   $('editor').classList.toggle('empty-project', !PROJ);
 
   if (!PROJ) {
-    lanes.innerHTML = '<div class="empty">Kein Projekt geöffnet — oben eines auswählen '
-      + 'und <b>Öffnen</b>, oder <b>Neu</b> anlegen.</div>';
+    lanes.innerHTML = '<div class="empty">Kein Projekt geöffnet. Im Reiter '
+      + '<b>Projekte</b> eines öffnen oder anlegen.<br>'
+      + '<span class="dim">Solange keines offen ist, bleiben die Lichter '
+      + 'im Ruhezustand.</span></div>';
     layoutTimeline();
     return;
   }
@@ -491,20 +859,28 @@ function buildHead(lane) {
   head.className = 'head';
   head.title = 'Klicken für die Spureinstellungen';
   head.classList.toggle('muted', lane.kind === 'audio' && lane.track.mute);
+  head.classList.toggle('relay', lane.kind === 'relay');
   if (SEL && SEL.kind === 'track' && SEL.track === lane.track) head.classList.add('sel');
 
   const name = document.createElement('div');
   name.className = 'hn';
   name.textContent = lane.kind === 'audio'
     ? (lane.track.name || `Audio ${lane.index + 1}`)
-    : (lane.track.name || lane.track.model);
+    : lane.kind === 'relay'
+      ? (lane.track.name || relayName(lane.track))
+      : (lane.track.name || lane.track.model);
 
   const sub = document.createElement('div');
   sub.className = 'hs';
+  // Der Text steckt in einem eigenen Element, damit er sich kuerzen kann, ohne
+  // den Stummschalter mitzunehmen.
+  const text = document.createElement('span');
+  text.className = 'ht';
+  sub.append(text);
 
   if (lane.kind === 'audio') {
     const gain = lane.track.gain_db;
-    sub.append(gain ? `${gain > 0 ? '+' : ''}${gain} dB` : 'Audio');
+    text.append(gain ? `${gain > 0 ? '+' : ''}${gain} dB` : 'Audio');
     const mute = document.createElement('button');
     mute.className = 'mute' + (lane.track.mute ? ' on' : '');
     mute.textContent = 'M';
@@ -517,17 +893,28 @@ function buildHead(lane) {
       renderInspector();
     };
     sub.append(mute);
+  } else if (lane.kind === 'relay') {
+    const relay = relayOf(lane.track);
+    if (!relay) text.append('⚠ Relais gibt es nicht mehr');
+    else {
+      text.append(`GP${relay.pin} · Bit ${lane.track.relay}`);
+      head.title = `${lane.track.model} · ${relay.name} · GP${relay.pin} · `
+        + `CC ${relay.cc}${relay.active_low ? ' · schaltet bei LOW' : ''}`;
+    }
   } else {
     const model = STATE && STATE.models.find((entry) => entry.name === lane.track.model);
     const outputs = zoneOutputs(lane.track);
-    if (!model) sub.append('⚠ unbekanntes Modell');
+    if (!model) text.append('⚠ unbekanntes Modell');
     else if (outputs && outputs.strips.length) {
-      sub.append(outputs.strips.map((strip) => strip.name).join(' + '));
-      head.title = `Sender ${model.tx_port + 1} · Kanal ${outputs.base_channel}`
-        + `–${outputs.base_channel + 3} · ${describeOutputs(outputs)}`;
-    } else sub.append(`Sender ${model.tx_port + 1}`);
-    if (model && model.zones > 1) sub.append(` · Z${lane.track.zone + 1}`);
+      text.append(outputs.strips.map((strip) => strip.name).join(' + '));
+      head.title = `Sender ${model.tx_port + 1} · Kanal ${model.first_channel}`
+        + `–${model.last_channel} · ${describeOutputs(outputs)}`;
+    } else text.append(`Sender ${model.tx_port + 1}`);
+    if (model && model.zones > 1) text.append(` · Z${lane.track.zone + 1}`);
   }
+
+  // Gekuerzt heisst nicht unlesbar.
+  if (text.textContent) text.title = text.textContent;
 
   head.append(name, sub);
   head.onclick = () => selectTrack(lane.track);
@@ -536,7 +923,8 @@ function buildHead(lane) {
 
 function buildLane(lane) {
   const element = document.createElement('div');
-  element.className = 'lane' + (lane.kind === 'audio' ? ' audio' : '');
+  element.className = 'lane'
+    + (lane.kind === 'audio' ? ' audio' : lane.kind === 'relay' ? ' relay' : '');
   element.classList.toggle('muted', lane.kind === 'audio' && lane.track.mute);
   element.classList.toggle('nogrid', !SNAP);
 
@@ -555,12 +943,14 @@ function buildLane(lane) {
     };
   }
   element.onpointerdown = (event) => { if (event.target === element) selectNothing(); };
+  element._lane = lane;
   return element;
 }
 
 function buildItem(lane, item) {
   const node = document.createElement('div');
-  node.className = 'item' + (lane.kind === 'audio' ? ' clip' : '');
+  node.className = 'item'
+    + (lane.kind === 'audio' ? ' clip' : lane.kind === 'relay' ? ' switched' : '');
 
   const parts = {};
   if (lane.kind === 'light') {
@@ -613,6 +1003,11 @@ function layoutItem(node) {
     parts.cap2.textContent = fmtTime(length)
       + (item.gain_db ? ` · ${item.gain_db > 0 ? '+' : ''}${item.gain_db} dB` : '');
     drawWave(node, lane, item);
+  } else if (lane.kind === 'relay') {
+    // A relay is on or off, so there is no colour to derive and no level to
+    // report -- the block itself is the whole statement.
+    parts.cap.textContent = item.label || 'an';
+    parts.cap2.textContent = '';
   } else {
     node.style.background = blockColour(item, 0.35);
     parts.cap.textContent = item.label || cueName(item.cue);
@@ -620,6 +1015,7 @@ function layoutItem(node) {
       ? `${fmtTime(length)} · ${Math.round(item.brightness / 255 * 100)} %` : '';
   }
 
+  // A relay has no fades; the fields simply are not there on its blocks.
   parts.fadeIn.style.width = item.fade_in_s > 0
     ? Math.min(width, item.fade_in_s * PPS).toFixed(1) + 'px' : '0';
   parts.fadeOut.style.width = item.fade_out_s > 0
@@ -688,7 +1084,7 @@ function layoutTimeline() {
 }
 
 function refreshPlayhead(at) {
-  $('playhead').style.left = `calc(var(--head-w) + ${(at * PPS).toFixed(1)}px)`;
+  $('playhead').style.transform = `translateX(${(at * PPS).toFixed(2)}px)`;
 }
 
 /* =============================================================== interaction */
@@ -703,7 +1099,8 @@ function paintSelection() {
 }
 
 function selectItem(lane, item) {
-  SEL = {kind: lane.kind === 'audio' ? 'clip' : 'block', track: lane.track, item};
+  SEL = {kind: lane.kind === 'audio' ? 'clip' : lane.kind === 'relay' ? 'switch'
+           : 'block', track: lane.track, item};
   paintSelection();
   renderInspector();
 }
@@ -751,13 +1148,47 @@ function clampBlock(track, block) {
   fitFades(block);
 }
 
-/** Keeps the fades inside their block; the bridge rejects anything else. */
+/** Keeps the fades inside their block; the bridge rejects anything else.
+ *  A switch block has no fades at all, and must not be given any. */
 function fitFades(item) {
+  if (item.fade_in_s === undefined) return;
   const total = item.fade_in_s + item.fade_out_s;
   if (total <= item.duration_s || total <= 0) return;
   const factor = item.duration_s / total;
   item.fade_in_s = round3(item.fade_in_s * factor);
   item.fade_out_s = round3(item.fade_out_s * factor);
+}
+
+/* Wohin ein Block beim Loslassen darf.
+ *
+ * Ein Lichtblock traegt Cue, Farbton, Helligkeit und Tempo -- den kann jede
+ * Lichtspur nehmen, auch die eines anderen Modells. Ein Relaisblock ist ein
+ * Zustand und gehoert auf eine Relaisspur, ein Clip auf eine Audiospur. Ueber
+ * die Grenze hinweg gibt es nichts zu uebertragen. */
+const laneTakes = (from, to) => from.kind === to.kind;
+
+function laneElementUnder(clientY) {
+  for (const element of $('tl-lanes').children) {
+    if (!element._lane) continue;
+    const box = element.getBoundingClientRect();
+    if (clientY >= box.top && clientY < box.bottom) return element;
+  }
+  return null;
+}
+
+/* Schiebt einen Block auf die erste Luecke, in die er passt.
+ *
+ * Dasselbe, was ein neuer Effekt tut: zwei Bloecke duerfen sich nicht
+ * ueberlappen, sonst laesst sich das Projekt nicht speichern. Auf einer neuen
+ * Spur ist die gezogene Stelle oft belegt, und ein Block, der beim Loslassen
+ * verschwindet, waere schlimmer als einer, der ein Stueck weiterrutscht. */
+function slideIntoGap(track, block) {
+  for (const other of [...track.blocks].sort((a, b) => a.start_s - b.start_s)) {
+    if (other === block) continue;
+    const end = round3(other.start_s + other.duration_s);
+    if (block.start_s < end && other.start_s < block.start_s + block.duration_s)
+      block.start_s = end;
+  }
 }
 
 function startDrag(event, node) {
@@ -776,20 +1207,47 @@ function startDrag(event, node) {
 
   const bounds = lane.kind === 'audio' ? {before: 0, after: Infinity}
     : neighbourBounds(lane.track, item, item.start_s, item.start_s + item.duration_s);
-  const origin = {start: item.start_s, length: item.duration_s, x: event.clientX};
+  const origin = {start: item.start_s, length: item.duration_s,
+                  x: event.clientX, y: event.clientY};
   let moved = false;
 
+  // Senkrecht gezogen wechselt der Block die Spur. Bis zum Loslassen bleibt er
+  // in seiner eigenen und wird nur verschoben dargestellt -- ihn mitten in der
+  // Geste umzuhaengen kostet in manchen Browsern die Zeigererfassung.
+  let target = null;                 // Ziel-Spurelement, oder null fuer "bleibt"
+  const markTarget = (element, on) =>
+    element && element.classList.toggle('drop', on);
+
   node.setPointerCapture(event.pointerId);
+  node.style.zIndex = '6';
   event.preventDefault();
 
   const onMove = (move) => {
     const delta = (move.clientX - origin.x) / PPS;
-    if (Math.abs(move.clientX - origin.x) > 2) moved = true;
+    if (Math.abs(move.clientX - origin.x) > 2
+        || Math.abs(move.clientY - origin.y) > 2) moved = true;
     const free = move.altKey;
 
     if (mode === 'move') {
+      const over = laneElementUnder(move.clientY);
+      const next = over && over._lane !== lane && laneTakes(lane, over._lane)
+        ? over : null;
+      if (next !== target) {
+        markTarget(target, false);
+        target = next;
+        markTarget(target, true);
+      }
+      node.style.transform = target
+        ? `translateY(${(target.getBoundingClientRect().top
+                         - node.parentElement.getBoundingClientRect().top).toFixed(1)}px)`
+        : '';
+
+      // Beim Spurwechsel gelten die Nachbarn der Zielspur noch nicht -- der
+      // Block darf frei stehen und rueckt beim Loslassen in die erste Luecke.
       let start = snapTime(origin.start + delta, free);
-      start = clamp(start, bounds.before, Math.max(bounds.before, bounds.after - origin.length));
+      if (!target)
+        start = clamp(start, bounds.before,
+                      Math.max(bounds.before, bounds.after - origin.length));
       item.start_s = round3(Math.max(0, start));
     } else if (mode === 'left') {
       const end = origin.start + origin.length;
@@ -808,12 +1266,35 @@ function startDrag(event, node) {
   const finish = () => {
     node.onpointermove = node.onpointerup = node.onpointercancel = null;
     try { node.releasePointerCapture(event.pointerId); } catch { /* already gone */ }
-    if (!moved) return;                       // a plain click only selects
+    markTarget(target, false);
+    node.style.transform = '';
+    node.style.zIndex = '';
+    if (!moved) { target = null; return; }    // a plain click only selects
     fitFades(item);
-    if (lane.kind === 'light') lane.track.blocks.sort((a, b) => a.start_s - b.start_s);
-    markDirty();
-    layoutItem(node);
-    layoutTimeline();
+
+    const landed = target && target._lane;
+    target = null;
+
+    if (landed) {
+      const from = itemsOf(lane);
+      from.splice(from.indexOf(item), 1);
+      const into = itemsOf(landed);
+      into.push(item);
+      if (landed.kind !== 'audio') {
+        slideIntoGap(landed.track, item);
+        into.sort((a, b) => a.start_s - b.start_s);
+      }
+      markDirty();
+      // Der Block gehoert jetzt einer anderen Spur -- das ist mehr, als sich
+      // an Ort und Stelle richten laesst.
+      buildTimeline();
+      selectItem(laneOf(landed.track), item);
+    } else {
+      if (lane.kind !== 'audio') lane.track.blocks.sort((a, b) => a.start_s - b.start_s);
+      markDirty();
+      layoutItem(node);
+      layoutTimeline();
+    }
     renderInspector();
   };
 
@@ -874,7 +1355,11 @@ async function uploadAudio(file, lane, at) {
     duration_s: answer.duration_s, gain_db: 0, fade_in_s: 0, fade_out_s: 0,
   });
   markDirty();
-  await saveProject(true);          // the bridge answers with the waveform
+  // The one save whose answer is worth reading back: it carries the waveform
+  // the new clip has to be drawn with.
+  const answer2 = await post('/api/project', {project: PROJ});
+  if (answer2.ok) { clearTimeout(saveTimer); applyProject(answer2.project); }
+  else toast(answer2.error, 'err', 12000);
   toast(`${file.name} eingefügt.`, 'ok', 2500);
 }
 
@@ -945,18 +1430,29 @@ $('tl').addEventListener('wheel', (event) => {
 $('btn-add-block').onclick = () => addBlock();
 $('btn-add-audio').onclick = () => addAudioTrack();
 $('btn-add-light').onclick = () => addLightTrack();
+$('btn-add-relay').onclick = () => addRelayTrack();
 
-function addBlock() {
+/* Adds a block to whichever track is selected. A relay track takes a switch
+ * block, a light track an effect block -- the same button, because from the
+ * user's side it is the same gesture. */
+function addBlock(onTrack, atSeconds) {
   if (!PROJ) return toast('Erst ein Projekt öffnen.', 'err');
-  if (!PROJ.light_tracks.length) return toast('Erst eine Lichtspur anlegen (+L).', 'err');
+  const relays = PROJ.relay_tracks || [];
+  const chosen = onTrack || (SEL && SEL.track);
+  const onRelay = chosen && relays.includes(chosen);
+  if (!onRelay && !PROJ.light_tracks.length)
+    return toast('Erst eine Lichtspur anlegen (+L).', 'err');
 
-  const track = SEL && SEL.track && PROJ.light_tracks.includes(SEL.track)
-    ? SEL.track : PROJ.light_tracks[0];
+  const track = onRelay ? chosen
+    : (chosen && PROJ.light_tracks.includes(chosen) ? chosen : PROJ.light_tracks[0]);
+  const start = snapTime(atSeconds !== undefined ? atSeconds : POSITION, false);
 
-  const block = {
-    start_s: snapTime(POSITION, false), duration_s: 4, cue: 1, hue: 0,
-    brightness: 255, param: 128, fade_in_s: 0.5, fade_out_s: 0.5, label: '',
-  };
+  const block = onRelay
+    ? {start_s: start, duration_s: 2, label: ''}
+    : {
+        start_s: start, duration_s: 4, cue: 1, hue: 0,
+        brightness: 255, param: 128, fade_in_s: 0.5, fade_out_s: 0.5, label: '',
+      };
 
   // Slide to the first gap that fits, so the project stays saveable.
   for (const other of [...track.blocks].sort((a, b) => a.start_s - b.start_s)) {
@@ -989,6 +1485,14 @@ function availableZones() {
   return out;
 }
 
+function availableRelays() {
+  const out = [];
+  for (const model of (STATE ? STATE.models : []))
+    for (let relay = 0; relay < (model.relays || []).length; relay++)
+      out.push({model: model.name, relay});
+  return out;
+}
+
 function addLightTrack() {
   if (!PROJ) return toast('Erst ein Projekt öffnen.', 'err');
   const taken = new Set(PROJ.light_tracks.map((track) => `${track.model}/${track.zone}`));
@@ -1005,11 +1509,148 @@ function addLightTrack() {
   selectTrack(PROJ.light_tracks[PROJ.light_tracks.length - 1]);
 }
 
+function addRelayTrack() {
+  if (!PROJ) return toast('Erst ein Projekt öffnen.', 'err');
+  if (!PROJ.relay_tracks) PROJ.relay_tracks = [];
+  const all = availableRelays();
+  if (!all.length)
+    return toast('Kein Modell hat ein Relais — im Tab Modelle eins einrichten.', 'err');
+
+  const taken = new Set(PROJ.relay_tracks.map((track) => `${track.model}/${track.relay}`));
+  const free = all.find((entry) => !taken.has(`${entry.model}/${entry.relay}`));
+  if (!free) return toast('Für jedes Relais gibt es bereits eine Spur.', 'err');
+
+  const model = STATE.models.find((entry) => entry.name === free.model);
+  const relay = model.relays[free.relay];
+  PROJ.relay_tracks.push({
+    model: free.model, relay: free.relay, blocks: [],
+    name: `${free.model} · ${relay.name}`,
+  });
+  markDirty();
+  buildTimeline();
+  selectTrack(PROJ.relay_tracks[PROJ.relay_tracks.length - 1]);
+}
+
+/* ============================================================ Kontextmenü */
+
+/* Was hier drinsteht, hängt daran, worauf geklickt wurde: auf einem Block gibt
+   es etwas zu duplizieren und zu löschen, auf leerer Spur etwas einzufügen.
+   Alle Einträge rufen dieselben Funktionen wie die Knöpfe und Tasten -- das
+   Menü ist ein zweiter Weg zu denselben Handgriffen, keine zweite Fassung. */
+
+function closeMenu() {
+  $('ctx').classList.add('hidden');
+}
+
+function openMenu(x, y, entries) {
+  const menu = $('ctx');
+  menu.innerHTML = '';
+  for (const entry of entries) {
+    if (!entry) continue;
+    if (entry === '-') {
+      // Kein Strich als Erstes und keine zwei hintereinander -- die Einträge
+      // davor können alle weggefallen sein.
+      if (menu.lastElementChild && menu.lastElementChild.tagName === 'BUTTON')
+        menu.append(document.createElement('hr'));
+      continue;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'menuitem');
+    if (entry.danger) button.className = 'danger';
+    button.append(entry.label);
+    if (entry.key) {
+      const key = document.createElement('span');
+      key.className = 'key';
+      key.textContent = entry.key;
+      button.append(key);
+    }
+    button.disabled = !!entry.disabled;
+    button.onclick = () => { closeMenu(); entry.run(); };
+    menu.append(button);
+  }
+
+  if (menu.lastElementChild && menu.lastElementChild.tagName === 'HR')
+    menu.lastElementChild.remove();
+
+  // Erst zeigen, dann einpassen: vorher hat der Kasten keine Maße.
+  menu.classList.remove('hidden');
+  menu.style.left = '0px';
+  menu.style.top = '0px';
+  const box = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(x, window.innerWidth - box.width - 8)}px`;
+  menu.style.top = `${Math.min(y, window.innerHeight - box.height - 8)}px`;
+}
+
+function duplicateItem(lane, item) {
+  const copy = JSON.parse(JSON.stringify(item));
+  const list = itemsOf(lane);
+  const length = lane.kind === 'audio' ? clipLength(lane.track, item) : item.duration_s;
+  copy.start_s = round3(item.start_s + length);
+  list.push(copy);
+  list.sort((a, b) => a.start_s - b.start_s);
+  markDirty();
+  buildTimeline();
+  selectItem(lane, copy);
+}
+
+function menuEntries(lane, item, at) {
+  const kind = lane && lane.kind;
+  const insert = kind === 'audio'
+    ? {label: 'Musik einfügen …', run: () => pickAudio(lane, snapTime(at, false))}
+    : {label: kind === 'relay' ? 'Relaisblock einfügen' : 'Effekt einfügen',
+       key: 'E', run: () => addBlock(lane && lane.track, at)};
+
+  return [
+    lane ? insert : null,
+    item ? {label: 'Duplizieren', run: () => duplicateItem(lane, item)} : null,
+    item ? {label: 'Löschen', key: 'Entf', danger: true,
+            run: () => { selectItem(lane, item); deleteSelection(); }} : null,
+    '-',
+    {label: 'Abspielkopf hierher', run: () => seekTo(snapTime(at, false), true)},
+    {label: SNAP ? 'Raster aus' : 'Raster an', run: () => $('btn-snap').click()},
+    lane ? '-' : null,
+    lane ? {label: 'Spureinstellungen', run: () => selectTrack(lane.track)} : null,
+    lane ? {label: 'Spur löschen', danger: true,
+            run: () => { selectTrack(lane.track); deleteSelection(); }} : null,
+  ];
+}
+
+function wireMenu() {
+  const open = (event) => {
+    if (!PROJ) return;
+    event.preventDefault();
+    const node = event.target.closest('.item');
+    const laneEl = event.target.closest('.lane');
+    const head = event.target.closest('.head');
+    const lane = node ? node._lane : laneEl ? laneEl._lane
+      : head ? laneList()[[...$('tl-heads').children].indexOf(head)] : null;
+    if (node) selectItem(node._lane, node._item);
+    // Über einem Spurkopf steht der Zeiger auf keiner Zeit -- dort gilt, wo
+    // der Abspielkopf ohnehin schon steht.
+    const at = head ? POSITION : timeAtClientX(event.clientX);
+    openMenu(event.clientX, event.clientY, menuEntries(lane, node && node._item, at));
+  };
+  $('tl-lanes').addEventListener('contextmenu', open);
+  $('tl-heads').addEventListener('contextmenu', open);
+  $('tl-ruler').addEventListener('contextmenu', open);
+
+  // Wegklicken, wegtippen, wegrollen -- ein Menü, das stehen bleibt, ist im Weg.
+  document.addEventListener('pointerdown', (event) => {
+    if (!event.target.closest('#ctx')) closeMenu();
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenu();
+  });
+  $('tl').addEventListener('scroll', closeMenu, {passive: true});
+}
+wireMenu();
+
 function deleteSelection() {
   if (!SEL || !PROJ) return;
 
   if (SEL.kind === 'track') {
-    const list = PROJ.audio_tracks.includes(SEL.track) ? PROJ.audio_tracks : PROJ.light_tracks;
+    const list = listOf(SEL.track);
     const contents = list === PROJ.audio_tracks ? SEL.track.clips : SEL.track.blocks;
     if (contents.length &&
         !confirm(`Die Spur enthält ${contents.length} Element(e). Wirklich löschen?`)) return;
@@ -1048,6 +1689,7 @@ function renderInspector() {
 
   if (SEL.kind === 'track') renderTrackInspector();
   else if (SEL.kind === 'clip') renderClipInspector();
+  else if (SEL.kind === 'switch') renderSwitchInspector();
   else renderBlockInspector();
 }
 
@@ -1109,6 +1751,52 @@ const sliderField = (label, value, key, extra = '', shown = value) => `
     <input type="range" class="slider ${extra}" min="0" max="255" value="${value}" data-key="${key}">
   </div>`;
 
+/* A relay block has three things to say: when it starts, how long it stays on
+ * and what to call it. No effect, no colour, no fades -- a switch has none. */
+function renderSwitchInspector() {
+  const block = SEL.item;
+  const relay = relayOf(SEL.track);
+  $('insp-kind').textContent = 'Schaltblock';
+  $('insp-title').textContent = SEL.track.name || relayName(SEL.track);
+
+  $('insp-body').innerHTML = `
+    <div class="note" style="margin:0 0 14px">${relay
+      ? `<b>${esc(relay.name)}</b> ist während dieses Blocks <b>an</b> — Bit `
+        + `${SEL.track.relay} im Rahmen, GP${relay.pin}.`
+        + ((relay.min_on_ms || relay.min_off_ms)
+          ? `<br><span class="dim">Träges Relais: mindestens ${relay.min_on_ms} ms an, `
+            + `${relay.min_off_ms} ms aus. Kürzere Blöcke werden an Bord gedehnt.</span>` : '')
+      : 'Dieses Relais gibt es am Modell nicht (mehr).'}</div>
+
+    <div class="f"><label class="lbl">Beschriftung</label>
+      <input type="text" data-key="label" value="${esc(block.label)}"
+             placeholder="an" style="width:100%"></div>
+
+    <div class="fgrid">
+      ${numberField('Start (s)', block.start_s, 'start_s', 0.05)}
+      ${numberField('Länge (s)', block.duration_s, 'duration_s', 0.05, MIN_LENGTH)}
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <button class="danger" id="insp-del">Block löschen</button>
+      <span class="dim" style="font-size:11.5px">Ende ${fmtTime(block.start_s + block.duration_s)}</span>
+    </div>`;
+
+  wireInspector((key, value) => {
+    block[key] = value;
+    if (key === 'start_s' || key === 'duration_s') {
+      clampBlock(SEL.track, block);
+      SEL.track.blocks.sort((a, b) => a.start_s - b.start_s);
+    }
+    const shown = $('insp-body').querySelector(`[data-show="${key}"]`);
+    if (shown) shown.textContent = value;
+    markDirty();
+    refreshItem(block);
+    layoutTimeline();
+  });
+  $('insp-del').onclick = deleteSelection;
+}
+
 function renderBlockInspector() {
   const block = SEL.item;
   $('insp-kind').textContent = 'Effektblock';
@@ -1122,7 +1810,6 @@ function renderBlockInspector() {
     <p class="dim" style="font-size:11.5px;margin:6px 0 14px">
       läuft auf <b style="color:var(--text-2)">${esc(describeOutputs(outputs))}</b></p>
 
-    <div id="relay-state"></div>
 
     <label class="lbl">Effekt</label>
     <div class="cues" id="cue-picker" style="margin-bottom:15px"></div>
@@ -1157,7 +1844,6 @@ function renderBlockInspector() {
   }), pixels);
 
   buildCuePicker(block);
-  renderRelayState(block, outputs, pixels);
 
   wireInspector((key, value) => {
     block[key] = value;
@@ -1175,7 +1861,6 @@ function renderBlockInspector() {
     markDirty();
     refreshItem(block);
     layoutTimeline();
-    refreshRelayState();
   });
   $('insp-del').onclick = deleteSelection;
 }
@@ -1184,58 +1869,6 @@ const modelCeiling = (track) => {
   const model = STATE && STATE.models.find((entry) => entry.name === track.model);
   return model ? (model.max_brightness ?? 255) : 255;
 };
-
-/**
- * What this block does to the relays of its zone.
- *
- * Relays are not automated on their own -- three of the four sources are read
- * straight out of the effect engine, which is what keeps them from costing an
- * RC channel each. Efficient, and completely invisible until it is shown.
- */
-function refreshRelayState() {
-  if (!SEL || SEL.kind !== 'block') return;
-  const outputs = zoneOutputs(SEL.track);
-  renderRelayState(SEL.item, outputs, outputs && outputs.pixels ? outputs.pixels : 34);
-}
-
-function renderRelayState(block, outputs, pixelCount) {
-  const box = $('relay-state');
-  if (!box) return;
-  const relays = outputs ? outputs.relays : [];
-  if (!relays.length) { box.innerHTML = ''; return; }
-
-  // A strobe switches the relay on and off within one cycle, so a single
-  // moment says little -- sample a whole period and report what happens.
-  const period = periodMs(block.param);
-  const show = {cue: block.cue, hue: block.hue, brightness: block.brightness,
-                param: block.param};
-  const states = relays.map(() => ({on: 0, off: 0}));
-  for (let step = 0; step < 24; step++) {
-    const frame = renderEffect(show, step * period / 24, pixelCount,
-                               {max: modelCeiling(SEL.track)});
-    relays.forEach((relay, index) => {
-      if (relayWants(relay, show, frame)) states[index].on++;
-      else states[index].off++;
-    });
-  }
-
-  box.innerHTML = `<label class="lbl">Relais dieser Zone</label>
-    <div class="relays">${relays.map((relay, index) => {
-      const {on, off} = states[index];
-      const mode = on && off ? 'blinkt' : on ? 'an' : 'aus';
-      const slow = relay.min_on_ms || relay.min_off_ms;
-      return `<div class="relay ${on && off ? 'pulse' : on ? 'on' : 'off'}">
-        <i></i>
-        <span class="rn">${esc(relay.name)}</span>
-        <span class="rs">${mode}</span>
-        <span class="rw">${esc(relayExplains(relay))}${
-          slow ? ` · träge ${relay.min_on_ms}/${relay.min_off_ms} ms` : ''}</span>
-      </div>`;
-    }).join('')}</div>
-    <p class="dim" style="font-size:11px;margin:6px 0 14px">Relais folgen dem Effekt,
-      sie haben keine eigene Spur — das spart die RC-Kanäle. Die Quelle je Relais
-      steht im Tab <b>Modelle</b>.</p>`;
-}
 
 /** The effect picker: every cue running its own animation, at a glance. */
 function buildCuePicker(block) {
@@ -1266,8 +1899,6 @@ function buildCuePicker(block) {
       const label = $('insp-body').querySelector('[data-key="label"]');
       if (label) label.placeholder = cueName(index);
       refreshItem(block);
-      // The cue is what most relays follow, so their state changes with it.
-      refreshRelayState();
     };
   });
 }
@@ -1301,11 +1932,43 @@ function renderClipInspector() {
 
 function renderTrackInspector() {
   const track = SEL.track;
-  const isAudio = PROJ.audio_tracks.includes(track);
-  $('insp-kind').textContent = isAudio ? 'Audiospur' : 'Lichtspur';
+  const list = listNameOf(track);
+  const isAudio = list === 'audio';
+  $('insp-kind').textContent = isAudio ? 'Audiospur'
+    : list === 'relay' ? 'Relaisspur' : 'Lichtspur';
   $('insp-title').textContent = track.name || track.model || '—';
 
-  if (isAudio) {
+  if (list === 'relay') {
+    const models = STATE ? STATE.models : [];
+    const model = models.find((entry) => entry.name === track.model);
+    const relays = (model && model.relays) || [];
+    const relay = relays[track.relay];
+    $('insp-body').innerHTML = `
+      <div class="f"><label class="lbl">Name</label>
+        <input type="text" data-key="name" value="${esc(track.name)}"
+               placeholder="${esc(relayName(track))}" style="width:100%"></div>
+      <div class="f"><label class="lbl">Modell</label>
+        <select data-key="model" style="width:100%">${models.map((entry) =>
+          `<option value="${esc(entry.name)}" ${entry.name === track.model ? 'selected' : ''}
+            >${esc(entry.name)} — Sender ${entry.tx_port + 1}</option>`
+        ).join('') || `<option>${esc(track.model)}</option>`}</select></div>
+      <div class="f"><label class="lbl">Relais</label>
+        <select data-key="relay" style="width:100%">${relays.map((entry, index) =>
+          `<option value="${index}" ${track.relay === index ? 'selected' : ''}
+            >${esc(entry.name)} — GP${entry.pin}</option>`
+        ).join('') || `<option>Relais ${track.relay + 1}</option>`}</select></div>
+      <div class="f"><label class="lbl">Schaltet</label>
+        <div class="note" style="margin:0">${relay
+          ? `Bit ${track.relay} im Rahmen, Control-Change ${relay.cc}, GP${relay.pin}`
+            + (relay.active_low ? ' — Modul schaltet bei LOW' : '')
+            + ((relay.min_on_ms || relay.min_off_ms)
+              ? `<br>träge: min ${relay.min_on_ms}/${relay.min_off_ms} ms` : '')
+          : 'Dieses Relais gibt es am Modell nicht (mehr).'}</div></div>
+      ${model ? '' : `<div class="note err">Das Modell „${esc(track.model)}“ steht nicht in
+        der Show-Konfiguration — diese Spur schaltet nichts.</div>`}
+      <div class="row"><button class="danger" id="insp-del">Spur löschen</button>
+        <span class="dim" style="font-size:11.5px">${track.blocks.length} Block/Blöcke</span></div>`;
+  } else if (isAudio) {
     $('insp-body').innerHTML = `
       <div class="f"><label class="lbl">Name</label>
         <input type="text" data-key="name" value="${esc(track.name)}" style="width:100%"></div>
@@ -1331,11 +1994,7 @@ function renderTrackInspector() {
           `<option value="${zone}" ${track.zone === zone ? 'selected' : ''}>Zone ${zone + 1}</option>`
         ).join('')}</select></div>` : ''}
       <div class="f"><label class="lbl">Steuert</label>
-        <div class="note" style="margin:0">${esc(describeOutputs(zoneOutputs(track)))}${
-          (() => { const o = zoneOutputs(track);
-            return o && o.relays.length
-              ? '<br>' + o.relays.map((r) => esc(r.name) + ' — ' + esc(relayExplains(r))).join('<br>')
-              : ''; })()}</div></div>
+        <div class="note" style="margin:0">${esc(describeOutputs(zoneOutputs(track)))}</div></div>
       ${model ? '' : `<div class="note err">Das Modell „${esc(track.model)}“ steht nicht in
         der Show-Konfiguration — diese Spur steuert nichts.</div>`}
       <div class="row"><button class="danger" id="insp-del">Spur löschen</button>
@@ -1343,13 +2002,15 @@ function renderTrackInspector() {
   }
 
   wireInspector((key, value) => {
-    track[key] = key === 'zone' ? +value : value;
+    track[key] = (key === 'zone' || key === 'relay') ? +value : value;
     markDirty();
-    // Model and zone change what the track drives, so the lanes are rebuilt.
-    // Name, gain and mute only relabel the head -- redrawing everything there
-    // would tear the field out from under the cursor mid-word.
-    if (key === 'model' || key === 'zone') { buildTimeline(); renderInspector(); }
-    else refreshHead(track);
+    // Model, zone and relay change what the track drives, so the lanes are
+    // rebuilt. Name, gain and mute only relabel the head -- redrawing
+    // everything there would tear the field out from under the cursor mid-word.
+    if (key === 'model' || key === 'zone' || key === 'relay') {
+      buildTimeline();
+      renderInspector();
+    } else refreshHead(track);
   });
   $('insp-del').onclick = deleteSelection;
 }
@@ -1389,10 +2050,16 @@ function renderTransport(transport) {
   if (transport.playing) SEEK_HINT = null;
 
   POSITION = at;
+  // `transport.rate` wäre hier falsch: das ist die Abtastrate der Soundkarte,
+  // nicht ein Tempo. Die Show läuft in Echtzeit.
+  CLOCK = transport.playing ? {at, stamp: performance.now()} : null;
   $('clock').textContent = fmtTime(at);
-  $('clock-total').textContent = 'von ' + fmtTime(transport.duration);
-  refreshPlayhead(at);
-  if (transport.playing) followPlayhead(at);
+  // With nothing open there is nothing to be "of", and the last project's
+  // length standing next to "kein Projekt geöffnet" reads as a contradiction.
+  $('clock-total').textContent = PROJ ? 'von ' + fmtTime(transport.duration) : '';
+  // Beim Spielen gehört der Kopf der Bildschleife -- hier gesetzt liefe er
+  // gegen die Zwischenwerte und zappelte.
+  if (!transport.playing) refreshPlayhead(at);
 
   // Nothing on any track means the show is zero seconds long, and the bridge
   // stops the moment it starts. Saying so beats a button that does nothing.
@@ -1415,28 +2082,37 @@ function renderTransport(transport) {
 /* ======================================================================= Bühne */
 
 /* Groups a model's channels into zones of four, so a two zone aircraft shows
- * two strips. The roles arrive in the order the configuration lists them. */
+ * two strips.
+ *
+ * The four channel entries come along for the raw table, but the values that
+ * get rendered come from `zone_states` -- what the driving encoder holds. The
+ * channels themselves only carry the resting state: while the timeline plays,
+ * nobody touches them, and reading the wire instead would hand back the
+ * symbols of an RS(8,6) code word rather than anything you could show. */
 function zonesOf(model) {
   const out = [];
+  const states = model.zone_states || [];
   for (let start = 0; start + 4 <= model.channels.length; start += 4) {
     const four = model.channels.slice(start, start + 4);
     const by = (role) => four.find((channel) => channel.role === role);
+    const index = out.length;
+    const state = states[index] || {cue: 0, hue: 0, brightness: 0, param: 128};
     out.push({
-      index: out.length,
+      index,
       cue: by('cue'), hue: by('hue'),
       brightness: by('brightness'), param: by('param'),
       channels: four,
-      live: four.some((channel) => channel.live),
+      state,
     });
   }
   return out;
 }
 
 const zoneShow = (zone) => ({
-  cue: zone.cue ? (zone.cue.step ?? 0) : 0,
-  hue: zone.hue ? zone.hue.level : 0,
-  brightness: zone.brightness ? zone.brightness.level : 0,
-  param: zone.param ? zone.param.level : 128,
+  cue: zone.state.cue,
+  hue: zone.state.hue,
+  brightness: zone.state.brightness,
+  param: zone.state.param,
 });
 
 let stageSignature = '';
@@ -1461,7 +2137,7 @@ function renderStage(state) {
             ${zonesOf(model).length > 1 ? `<span class="tag">Zone ${zone.index + 1}</span>` : ''}
             <span class="grow"></span>
             <span class="tag">Sender ${model.tx_port + 1}</span>
-            <span class="tag">Kanal ${zone.channels[0].channel}–${zone.channels[3].channel}</span>
+            <span class="tag" title="Alle Zonen dieses Modells teilen sich diesen codierten Block">Kanal ${model.first_channel}–${model.last_channel}</span>
           </div>
           <div class="strip-box"><canvas class="strip"></canvas></div>
           <div class="cuename"><span class="swatch"></span><span class="cn">—</span></div>
@@ -1475,7 +2151,7 @@ function renderStage(state) {
           </div>
           <details class="raw"><summary>Rohwerte</summary>
             <div class="tablewrap"><table>
-              <thead><tr><th>Kanal</th><th>Rolle</th><th>CC</th><th class="n">µs</th><th>Wert</th></tr></thead>
+              <thead><tr><th>Rolle</th><th>CC</th><th class="n">µs</th><th>Wert</th></tr></thead>
               <tbody></tbody></table></div>
           </details>`;
         $('stage').append(card);
@@ -1486,7 +2162,9 @@ function renderStage(state) {
         preview(card.querySelector('canvas'), () => {
           const current = card._zone;
           if (!current) return null;
-          if (!current.live) return {failsafe: true, max: card._max};
+          // Blackout is the one state the bridge can show as such; cue 0 draws
+          // itself black, and losing the radio is not visible from here.
+          if (card._blackout) return {failsafe: true, max: card._max};
           return {...zoneShow(current), max: card._max};
         }, 30);
       }
@@ -1500,27 +2178,34 @@ function renderStage(state) {
       if (!card) continue;
       card._zone = zone;
       card._max = model.max_brightness ?? 255;
-      updatePlaneCard(card, zone);
+      card._blackout = !!state.blackout;
+      updatePlaneCard(card, zone, !!state.blackout);
     }
   }
 }
 
-function updatePlaneCard(card, zone) {
+function updatePlaneCard(card, zone, blackout) {
   const show = zoneShow(zone);
-  // Without a link the aircraft shows amber, whatever the stale hue channel
-  // still says -- the swatch has to agree with the strip above it.
-  const [r, g, b] = zone.live ? hsv(show.hue, 255) : [255, 120, 0];
+  // The ground station always sends a valid frame, so there is no "no signal"
+  // to show from here -- that is the radio's business, and the radio is past
+  // this end of the wire. What there is: blackout, and plain off.
+  const dark = blackout || !show.cue || !show.brightness;
+  // Amber for blackout, the zone's own hue while it shows something, and a
+  // neutral grey when it is simply off -- hue 0 is red, and a red dot beside
+  // the word "aus" reads as an alarm.
+  const [r, g, b] = blackout ? [255, 120, 0]
+    : dark ? [70, 76, 88] : hsv(show.hue, 255);
 
-  card.classList.toggle('offline', !zone.live);
-  card.querySelector('.cn').textContent = zone.live
-    ? (show.cue ? cueName(show.cue) : 'aus') : 'Failsafe — kein Signal';
+  card.classList.toggle('offline', dark);
+  card.querySelector('.cn').textContent = blackout ? 'Blackout'
+    : show.cue ? cueName(show.cue) : 'aus';
   const swatch = card.querySelector('.swatch');
   swatch.style.background = `rgb(${r},${g},${b})`;
   swatch.style.color = `rgb(${r},${g},${b})`;
 
   const meter = (name, fraction, text, hue) => {
     const box = card.querySelector('.meter.' + name);
-    box.classList.toggle('off', !zone.live);
+    box.classList.toggle('off', dark);
     box.querySelector('i').style.width = (clamp(fraction, 0, 1) * 100).toFixed(1) + '%';
     box.querySelector('.v').textContent = text;
     if (hue) box.querySelector('.t').style.setProperty('--hue', hue);
@@ -1530,22 +2215,16 @@ function updatePlaneCard(card, zone) {
   meter('par', show.param / 255, (periodMs(show.param) / 1000).toFixed(2) + ' s');
 
   card.querySelector('tbody').innerHTML = zone.channels.map((channel) => `
-    <tr><td class="n">${channel.channel}</td><td>${esc(channel.role)}</td>
-      <td>${channel.cc}${channel.cc_lsb !== null ? '+' + channel.cc_lsb : ''}</td>
+    <tr><td>${esc(channel.role)}</td>
       <td class="n">${channel.us}</td>
-      <td class="${channel.live ? '' : 'dim'}">${channel.live ? esc(channel.decoded) : 'Failsafe'}</td>
+      <td class="${channel.live ? '' : 'dim'}">${channel.live ? esc(channel.decoded)
+        : 'Ruhezustand'}</td>
     </tr>`).join('');
 }
 
 function renderConnections(state) {
-  const midi = state.midi;
   const pico = state.pico;
   const rows = [
-    ['MIDI-Port', `<code>${esc(midi.port)}</code>`, midi.connections.length
-      ? midi.connections.map(esc).join('<br>')
-      : '<span class="dim">niemand verbunden — in der DAW den Track-Ausgang hierher legen</span>'],
-    ['MIDI-Nachrichten', midi.messages, midi.receiving
-      ? `${midi.rate.toFixed(1)} pro Sekunde` : '<span class="dim">still</span>'],
     ['Bodenstation', `<code>${esc(pico.device)}</code>`, pico.dry_run
       ? 'dry-run — es wird kein Gerät geöffnet'
       : (pico.connected ? `${pico.frames} Frames gesendet`
@@ -1568,13 +2247,6 @@ function renderStatus(state) {
     ? STATE.models.map((model) => `${model.name}:${model.tx_port}`).join(',') : '';
   STATE = state;
   $('offline').classList.add('hidden');
-
-  const midi = state.midi;
-  const connected = midi.connections.length > 0;
-  $('led-midi').className = 'led ' + (midi.receiving ? 'beat' : (connected ? 'warn' : 'bad'));
-  $('txt-midi').textContent = midi.receiving
-    ? `DAW ${midi.rate.toFixed(0)}/s`
-    : (connected ? 'DAW verbunden' : 'DAW getrennt');
 
   const pico = state.pico;
   $('led-pico').className = 'led ' + (pico.dry_run ? 'warn' : (pico.connected ? 'ok' : 'bad'));
@@ -1604,26 +2276,17 @@ function renderStatus(state) {
 function applyLock() {
   const box = $('lock-note');
   box.classList.toggle('hidden', !LOCKED);
-  box.textContent = 'Es läuft eine Show — es kommt MIDI herein oder der Transport spielt. '
-    + 'Die Bearbeitung ist gesperrt, damit sich die Zuordnung nicht mitten in der Show verschiebt.';
+  box.textContent = 'Es läuft eine Show. Die Bearbeitung ist gesperrt, damit '
+    + 'sich die Zuordnung nicht mitten in der Show verschiebt.';
   $('models').querySelectorAll('input, select, button')
     .forEach((element) => element.disabled = LOCKED);
-  $('btn-config-save').disabled = LOCKED;
+  $('btn-model-import').disabled = LOCKED;
+  // Creating a project lays out tracks from the configuration, so it waits for
+  // the same quiet moment an edit to the configuration does.
+  $('btn-project-create').disabled = LOCKED;
 }
 
 /* =============================================================== models view */
-
-const RELAY_SOURCES = [
-  ['pixel', 'folgt Pixel'], ['brightness', 'Master-Dimmer'],
-  ['cue', 'ab Cue'], ['channel', 'eigener RC-Kanal'],
-];
-
-/* "Directly over the bus" is only offered where a slot exists for it -- an
- * option that cannot be saved is worse than one that is missing. */
-const sourcesFor = (model) =>
-  (model.bus && model.bus.enabled && (model.bus.relays || []).length)
-    ? RELAY_SOURCES.concat([['bus', 'direkt über den Bus']])
-    : RELAY_SOURCES;
 
 /* Zone/relay combinations per transmitter, from /api/bus. The rules live on
  * the server; this is only the last answer it gave. */
@@ -1664,12 +2327,14 @@ function busMatrix(combinations, chosenZones, chosenRelays, attrs) {
   }).join('');
 
   return `<div class="tablewrap"><table class="bus-matrix">
-    <thead><tr><th class="bus-corner">Zonen \\ Relais</th>${head}</tr></thead>
+    <thead><tr><th class="bus-corner">Zonen \\ Bus-Relais</th>${head}</tr></thead>
     <tbody>${rows}</tbody>
   </table></div>
   <p class="dim" style="font-size:11.5px;margin:6px 0 0">
     Zahlen sind Millisekunden, bis dieselbe Zone wieder an der Reihe ist.
-    — heißt: passt nicht ins Bitbudget.</p>`;
+    — heißt: passt nicht ins Bitbudget. Gezählt werden nur Relais, die ein
+    eigenes Bit brauchen; Relais, die einem Effekt folgen, kosten nichts und
+    stehen hier nicht.</p>`;
 }
 
 async function loadBus() {
@@ -1683,105 +2348,25 @@ async function loadBus() {
 /* Picking a combination rewrites the model: zones are groups of four channels,
  * bus relays are entries with a control change each. Existing zones keep their
  * control changes so a change of mind does not renumber a whole show. */
-function applyBusChoice(model, zones, relays) {
-  const groups = Math.max(1, Math.floor(model.channels.length / 4));
-  const taken = new Set();
-  if (CONFIG.blackout_cc !== null) taken.add(CONFIG.blackout_cc);
-  for (const other of CONFIG.models) {
-    if (other.midi_channel !== model.midi_channel || other === model) continue;
-    other.channels.forEach((channel) => {
-      taken.add(channel.cc);
-      if (channel.cc_lsb != null) taken.add(channel.cc_lsb);
-    });
-    ((other.bus && other.bus.relays) || []).forEach((relay) => taken.add(relay.cc));
-  }
-  model.channels.forEach((channel) => {
-    taken.add(channel.cc);
-    if (channel.cc_lsb != null) taken.add(channel.cc_lsb);
-  });
-
-  const nextCC = () => {
-    for (let cc = 20; cc <= 110; cc++) if (!taken.has(cc)) { taken.add(cc); return cc; }
-    return 20;
-  };
-
-  if (zones > groups) {
-    for (let zone = groups; zone < zones; zone++) {
-      model.channels.push({role: 'cue', cc: nextCC(), quantize: 32, failsafe: 1000});
-      model.channels.push({role: 'hue', cc: nextCC(), failsafe: 1500});
-      model.channels.push({role: 'brightness', cc: nextCC(), cc_lsb: nextCC(),
-                           failsafe: 1000});
-      model.channels.push({role: 'param', cc: nextCC(), failsafe: 1500});
-    }
-  } else if (zones < groups) {
-    model.channels.length = zones * 4;
-    // Strips and relays must not be left pointing at a zone that is gone.
-    if (model.plane) {
-      model.plane.strips.forEach((s) => { s.zone = Math.min(s.zone, zones - 1); });
-      model.plane.relays.forEach((r) => { r.zone = Math.min(r.zone, zones - 1); });
-    }
-  }
-
-  const existing = (model.bus && model.bus.relays) || [];
-  const list = existing.slice(0, relays);
-  while (list.length < relays)
-    list.push({name: `bus${list.length}`, cc: nextCC(), failsafe: false});
-  model.bus = {enabled: true, relays: list};
-
-  // A relay pointing at a slot that no longer exists would fail validation on
-  // save; move it back to something that always works.
-  if (model.plane) {
-    model.plane.relays.forEach((relay) => {
-      if (relay.source === 'bus' && relay.arg >= relays) {
-        relay.source = 'cue';
-        relay.arg = 1;
-      }
-    });
-  }
-}
-
-/* The combination chooser for a model that already exists. Same table the
- * wizard shows, so both say the same thing about the same aircraft. */
-function busPanel(model, mi) {
-  if (!BUS || !BUS.ports) return '';
-  const port = BUS.ports[String(model.tx_port)];
-  if (!port) return '';
-
-  const zones = Math.max(1, Math.floor(model.channels.length / 4));
-  const relays = (model.bus && model.bus.relays ? model.bus.relays.length : 0);
-  const on = !!(model.bus && model.bus.enabled);
-  const free = (CONFIG.tx_ports.find((p) => p.id === model.tx_port) || {}).nchan
-    - model.tx_offset;
-  const classic = zones * 4 <= free;
-
-  const matrix = busMatrix(port.combinations, on ? zones : -1, on ? relays : -1,
-    (z, r) => `data-act="bus-pick" data-m="${mi}" data-zones="${z}" data-relays="${r}"`);
-
-  return `
-    <h3 class="section">Bus-Modus</h3>
-    <p class="muted" style="margin:0 0 10px;font-size:12.5px">
-      Ohne Bus trägt jede Zone vier eigene Kanäle — schnellstmöglich, aber
-      ${Math.floor(free / 4)} Zone(n) sind das Maximum bei ${free} freien Kanälen.
-      Mit Bus tragen acht Kanäle einen codierten Rahmen und die Zonen kommen reihum
-      dran: mehr Zonen und direkt schaltbare Relais, dafür Wartezeit.
-      Blass heißt langsamer als die Grenze von ${BUS.limit_ms} ms.
-    </p>
-    <label class="row" style="gap:8px;margin-bottom:10px">
-      <input type="checkbox" ${on ? 'checked' : ''} data-act="bus-toggle" data-m="${mi}"
-        ${classic || on ? '' : 'disabled'}>
-      <span>Bus-Modus für dieses Modell${classic ? '' :
-        ' — bei so vielen Zonen ohne Alternative'}</span>
-    </label>
-    ${matrix}`;
-}
-
 /* id 0 sits on GPIO2, id 1 on GPIO3 and so on -- see hardware/README.md. */
 const portGpio = (id) => 2 + id;
+
+/* Ready-made boards, straight from /api/config. */
+let BOARDS = [];
+let FREE_BOARD = 'pico';
+
+/* [255, 0, 0] -> "#ff0000", for the colour inputs. */
+const rgbHex = (colour) =>
+  '#' + colour.map((value) => value.toString(16).padStart(2, '0')).join('');
 
 async function loadConfig() {
   const answer = await api('/api/config');
   if (!answer.config) return toast(answer.error || 'Konfiguration nicht lesbar', 'err');
   CONFIG = answer.config;
+  // Which boards exist and where their connectors go is the server's answer,
+  // the same one it validates against. The wizard only adds the picture.
+  BOARDS = answer.boards || [];
+  FREE_BOARD = answer.free_board || 'pico';
   $('config-path').textContent = answer.path;
   renderModels();
   loadBus();          // fills in the combination tables once they arrive
@@ -1794,11 +2379,18 @@ function pinUsers(plane) {
     users.get(pin).push(what);
   };
   add(plane.sbus_pin, 'SBUS');
-  plane.strips.forEach((strip) => add(strip.pin, `Strip „${strip.name}“`));
+  (plane.outputs || []).forEach((output) => add(output.pin, `Ausgang „${output.name}“`));
   plane.relays.forEach((relay) => add(relay.pin, `Relais „${relay.name}“`));
   return users;
 }
 
+/* The overview is a list, not an editor.
+ *
+ * It used to be every setting of every aircraft laid out at once, which meant
+ * the same fields existed twice -- here and in the wizard -- and the two drifted.
+ * Now this answers "what is in this show, and is anything obviously wrong", and
+ * Bearbeiten hands the whole aircraft to the wizard.
+ */
 function renderModels() {
   const scroll = $('view-models').scrollTop;
 
@@ -1811,276 +2403,201 @@ function renderModels() {
   });
   const shared = [...perPort.entries()].filter(([, names]) => names.length > 1);
 
-  const warning = shared.length ? `<div class="note warn">
-    ${shared.map(([port, names]) => `Sender-Buchse ${port + 1} ist mit
-      <b>${names.map(esc).join('</b> und <b>')}</b> doppelt belegt.`).join('<br>')}
-    Jedes Modell hat einen eigenen Empfänger und braucht deshalb eine eigene
-    Buchse — es sei denn, beide Empfänger sind bewusst auf dasselbe Sendermodell
-    gebunden.</div>` : '';
+  // Not a warning any more. Several models on one jack is a normal thing to
+  // build: they share the transmitter and take different channel blocks out of
+  // the same frame, which the configuration check enforces. What it does mean
+  // is that they are alternatives, so a project takes one of them, not both --
+  // and that is where it is said, in the project wizard.
+  const warning = shared.length ? `<div class="note">
+    ${shared.map(([port, names]) => `Sender-Buchse ${port + 1} tragen sich
+      <b>${names.map(esc).join('</b> und <b>')}</b> zusammen.`).join('<br>')}
+    Das geht, solange sich ihre Kanalblöcke nicht überschneiden — darauf achtet
+    der Wizard, und die Konfiguration weist es sonst ab. Weil sie sich denselben
+    Sender teilen, kommt in ein Projekt aber immer nur eines davon.</div>` : '';
 
-  $('models').innerHTML = warning + CONFIG.models.map((model, mi) => {
-    const plane = model.plane;
-    const zones = Math.max(1, Math.floor(model.channels.length / 4));
+  const empty = `<div class="note">Noch kein Modell. <b>＋ Neues Modell</b> führt
+    durch Fernsteuerung, Zonen, LED-Ausgänge, Relais und Positionslichter.</div>`;
 
-    const head = `<div class="card-head">
-        <h2>${esc(model.name)}</h2>
-        <span class="tag" style="font-size:11px;color:var(--text-3);border:1px solid var(--line);border-radius:999px;padding:2px 8px">
-          Sender-Buchse ${model.tx_port + 1} · GP${portGpio(model.tx_port)}</span>
-        <span class="grow"></span>
-        <span class="dim" style="font-size:11.5px">MIDI-Kanal ${model.midi_channel} ·
-          ${zones} Zone(n) · Kanal ${model.tx_offset + 1}–${model.tx_offset + model.channels.length}</span>
-      </div>`;
+  $('models').innerHTML = warning + (CONFIG.models.length
+    ? CONFIG.models.map(modelCard).join('') : empty);
 
-    if (!plane) {
-      return `<div class="card" style="margin-bottom:14px">${head}<div class="card-body">
-        <p class="muted" style="margin:0 0 12px">Noch keine Bordkonfiguration — dieses
-          Modell bekommt keine eigene Firmware.</p>
-        <button data-act="add-plane" data-m="${mi}">Bordkonfiguration anlegen</button>
-      </div></div>`;
-    }
+  $('models').querySelectorAll('button[data-act]').forEach((button) => {
+    button.onclick = () => {
+      if (LOCKED) return toast('Während einer laufenden Show gesperrt.', 'warn', 4000);
+      const name = button.dataset.model;
+      if (button.dataset.act === 'edit') return wizOpen(name);
+      if (button.dataset.act === 'export') return exportModel(name);
+      if (!confirm(`Modell '${name}' wirklich entfernen?`)) return;
+      const gone = CONFIG.models.find((model) => model.name === name);
+      CONFIG.models = CONFIG.models.filter((model) => model.name !== name);
+      if (gone) freeJack(gone.tx_port);
+      renderModels();
+      saveConfig({quiet: true}).then((ok) => {
+        if (ok) toast(`Modell '${name}' entfernt und gespeichert.`, 'ok', 5000);
+      });
+    };
+  });
 
-    const users = pinUsers(plane);
-    const clash = (pin) => (users.get(pin) || []).length > 1;
-    const why = (pin) => clash(pin) ? `GPIO ${pin} doppelt: ${users.get(pin).join(', ')}` : '';
-
-    return `<div class="card" style="margin-bottom:14px">${head}<div class="card-body">
-
-      <h3 class="section">Anbindung</h3>
-      <div class="fgrid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
-        <div><label class="lbl">Sender-Buchse</label>
-          <select data-set="model" data-m="${mi}" data-key="tx_port" style="width:100%">
-            ${Array.from({length: 8}, (_, port) =>
-              `<option value="${port}" ${model.tx_port === port ? 'selected' : ''}>Buchse ${port + 1} · GP${portGpio(port)}</option>`).join('')}
-          </select></div>
-        <div><label class="lbl">MIDI-Kanal</label>
-          <input type="number" min="1" max="16" value="${model.midi_channel}"
-            data-set="model" data-m="${mi}" data-key="midi_channel" style="width:100%"></div>
-        <div><label class="lbl">erster Kanal</label>
-          <input type="number" min="0" max="15" value="${model.tx_offset}"
-            data-set="model" data-m="${mi}" data-key="tx_offset" style="width:100%"></div>
-        <div><label class="lbl">SBUS-GPIO</label>
-          <input type="number" min="0" max="28" value="${plane.sbus_pin}"
-            data-set="plane" data-m="${mi}" data-key="sbus_pin" style="width:100%"></div>
-        <div><label class="lbl">Helligkeitsdeckel</label>
-          <input type="number" min="1" max="255" value="${plane.max_brightness}"
-            data-set="plane" data-m="${mi}" data-key="max_brightness" style="width:100%"></div>
-        <div><label class="lbl">Renderrate (Hz)</label>
-          <input type="number" min="30" max="1000" value="${plane.render_hz}"
-            data-set="plane" data-m="${mi}" data-key="render_hz" style="width:100%"></div>
-      </div>
-
-      ${busPanel(model, mi)}
-
-      <h3 class="section">LED-Strips · ${plane.strips.length}/8</h3>
-      <div class="tablewrap"><table class="form">
-        <thead><tr><th>Name</th><th>GPIO</th><th>Pixel</th><th>Zone</th>
-          <th>Offset</th><th>rückwärts</th><th></th><th class="fill"></th></tr></thead>
-        <tbody>${plane.strips.map((strip, si) => `
-          <tr class="${clash(strip.pin) ? 'clash' : ''}" title="${esc(why(strip.pin))}">
-            <td><input type="text" value="${esc(strip.name)}" style="width:130px"
-              data-set="strips" data-m="${mi}" data-i="${si}" data-key="name"></td>
-            <td><input type="number" min="0" max="28" value="${strip.pin}" style="width:66px"
-              class="${clash(strip.pin) ? 'err' : ''}"
-              data-set="strips" data-m="${mi}" data-i="${si}" data-key="pin"></td>
-            <td><input type="number" min="1" max="256" value="${strip.count}" style="width:72px"
-              data-set="strips" data-m="${mi}" data-i="${si}" data-key="count"></td>
-            <td>${zoneSelect(zones, strip.zone, 'strips', mi, si)}</td>
-            <td><input type="number" min="0" max="255" value="${strip.offset}" style="width:72px"
-              data-set="strips" data-m="${mi}" data-i="${si}" data-key="offset"></td>
-            <td><input type="checkbox" ${strip.reverse ? 'checked' : ''}
-              data-set="strips" data-m="${mi}" data-i="${si}" data-key="reverse"></td>
-            <td><button class="tiny danger" data-act="del" data-list="strips"
-              data-m="${mi}" data-i="${si}" title="Entfernen">−</button></td>
-            <td class="fill"></td>
-          </tr>`).join('')}</tbody>
-      </table></div>
-      <div class="row" style="margin-top:10px">
-        <button data-act="add-strip" data-m="${mi}">Strip hinzufügen</button>
-        <span class="dim" style="font-size:11.5px">Gleicher Offset spiegelt zwei Strips,
-          fortlaufende Offsets ergeben eine Kette für Lauflichter.</span>
-      </div>
-
-      <h3 class="section">Relais · ${plane.relays.length}/8</h3>
-      <div class="tablewrap"><table class="form">
-        <thead><tr><th>Name</th><th>GPIO</th><th>Zone</th><th>Quelle</th><th>Arg</th>
-          <th>Schwelle</th><th>act.&nbsp;low</th><th>min&nbsp;an</th>
-          <th>min&nbsp;aus</th><th></th><th class="fill"></th></tr></thead>
-        <tbody>${plane.relays.map((relay, ri) => `
-          <tr class="${clash(relay.pin) ? 'clash' : ''}" title="${esc(why(relay.pin))}">
-            <td><input type="text" value="${esc(relay.name)}" style="width:118px"
-              data-set="relays" data-m="${mi}" data-i="${ri}" data-key="name"></td>
-            <td><input type="number" min="0" max="28" value="${relay.pin}" style="width:66px"
-              class="${clash(relay.pin) ? 'err' : ''}"
-              data-set="relays" data-m="${mi}" data-i="${ri}" data-key="pin"></td>
-            <td>${zoneSelect(zones, relay.zone, 'relays', mi, ri)}</td>
-            <td><select data-set="relays" data-m="${mi}" data-i="${ri}" data-key="source">
-              ${sourcesFor(model).map(([value, label]) =>
-                `<option value="${value}" ${relay.source === value ? 'selected' : ''}>${label}</option>`).join('')}
-            </select></td>
-            <td><input type="number" min="0" max="255" value="${relay.arg}" style="width:66px"
-              data-set="relays" data-m="${mi}" data-i="${ri}" data-key="arg"></td>
-            <td><input type="number" min="0" max="255" value="${relay.threshold}" style="width:72px"
-              data-set="relays" data-m="${mi}" data-i="${ri}" data-key="threshold"></td>
-            <td><input type="checkbox" ${relay.active_low ? 'checked' : ''}
-              data-set="relays" data-m="${mi}" data-i="${ri}" data-key="active_low"></td>
-            <td><input type="number" min="0" max="5000" value="${relay.min_on_ms}" style="width:76px"
-              data-set="relays" data-m="${mi}" data-i="${ri}" data-key="min_on_ms"></td>
-            <td><input type="number" min="0" max="5000" value="${relay.min_off_ms}" style="width:76px"
-              data-set="relays" data-m="${mi}" data-i="${ri}" data-key="min_off_ms"></td>
-            <td><button class="tiny danger" data-act="del" data-list="relays"
-              data-m="${mi}" data-i="${ri}" title="Entfernen">−</button></td>
-            <td class="fill"></td>
-          </tr>`).join('')}</tbody>
-      </table></div>
-      <div class="row" style="margin-top:10px">
-        <button data-act="add-relay" data-m="${mi}">Relais hinzufügen</button>
-        <span class="dim" style="font-size:11.5px">min an/aus auf 0 für MOSFETs, ~200 ms für
-          mechanische Relais. „active low“ für die üblichen Relaismodule.</span>
-      </div>
-
-      <h3 class="section">Positionslichter · ${plane.nav_lights.length}</h3>
-      <div class="tablewrap"><table class="form">
-        <thead><tr><th>Strip</th><th>Pixel</th><th>Farbe</th><th></th><th class="fill"></th></tr></thead>
-        <tbody>${plane.nav_lights.map((nav, ni) => `
-          <tr>
-            <td><select data-set="nav_lights" data-m="${mi}" data-i="${ni}" data-key="strip">
-              ${plane.strips.map((strip, si) =>
-                `<option value="${si}" ${nav.strip === si ? 'selected' : ''}>${esc(strip.name)}</option>`).join('')}
-            </select></td>
-            <td><input type="number" min="0" max="255" value="${nav.index}" style="width:76px"
-              data-set="nav_lights" data-m="${mi}" data-i="${ni}" data-key="index"></td>
-            <td><input type="color" value="${rgbHex(nav.color)}" data-act="colour"
-              data-m="${mi}" data-i="${ni}"></td>
-            <td><button class="tiny danger" data-act="del" data-list="nav_lights"
-              data-m="${mi}" data-i="${ni}" title="Entfernen">−</button></td>
-            <td class="fill"></td>
-          </tr>`).join('')}</tbody>
-      </table></div>
-      <div class="row" style="margin-top:10px">
-        <button data-act="add-nav" data-m="${mi}" ${plane.strips.length ? '' : 'disabled'}>
-          Positionslicht hinzufügen</button>
-        <span class="dim" style="font-size:11.5px">Liegen über jedem Effekt und lassen sich
-          nicht abschalten.</span>
-      </div>
-    </div></div>`;
-  }).join('');
-
-  wireModels();
+  wireModelDetails();
   applyLock();
   $('view-models').scrollTop = scroll;
 }
 
-const zoneSelect = (zones, value, list, mi, index) =>
-  `<select data-set="${list}" data-m="${mi}" data-i="${index}" data-key="zone">${
-    Array.from({length: zones}, (_, zone) =>
-      `<option value="${zone}" ${value === zone ? 'selected' : ''}>Zone ${zone + 1}</option>`
-    ).join('')}</select>`;
-
-const rgbHex = (colour) =>
-  '#' + colour.map((value) => value.toString(16).padStart(2, '0')).join('');
-
-/**
- * Values go straight into CONFIG and only the inline conflict marks are
- * recomputed, so typing a pin number does not tear the table out from under
- * the cursor. Structural changes rebuild the panel.
+/* Gibt die Buchse eines entfernten Modells wieder frei.
+ *
+ * Der Assistent schaltet eine Buchse an, wenn ein Modell sie belegt -- nichts
+ * schaltete sie je wieder aus. Zurueck blieb eine Buchse, die im Assistenten
+ * als belegt dasteht und in der Anschlussuebersicht Kanaele fuehrt, die
+ * niemand mehr sendet; das sieht aus, als waere das Modell gar nicht weg.
+ *
+ * Nur die Buchse dieses Modells, und nur wenn kein anderes sie noch benutzt.
+ * Name, Kanalzahl und Rahmenlaenge bleiben stehen: die beschreiben die Buchse
+ * und den Sender, nicht das Modell, das zufaellig daran hing.
  */
-function wireModels() {
-  const root = $('models');
-
-  root.querySelectorAll('[data-set]').forEach((input) => {
-    const apply = () => {
-      const model = CONFIG.models[+input.dataset.m];
-      const value = input.type === 'checkbox' ? input.checked
-        : input.type === 'number' ? +input.value
-        : input.dataset.key === 'tx_port' || input.dataset.key === 'zone' ? +input.value
-        : input.value;
-
-      if (input.dataset.set === 'model') model[input.dataset.key] = value;
-      else if (input.dataset.set === 'plane') model.plane[input.dataset.key] = value;
-      else model.plane[input.dataset.set][+input.dataset.i][input.dataset.key] = value;
-
-      if (input.dataset.key === 'pin' || input.dataset.key === 'sbus_pin'
-          || input.dataset.key === 'name') markClashes();
-    };
-    input.addEventListener('change', apply);
-    if (input.type === 'text' || input.type === 'number') input.addEventListener('input', apply);
-  });
-
-  root.querySelectorAll('[data-act]').forEach((element) => {
-    const model = () => CONFIG.models[+element.dataset.m];
-
-    if (element.dataset.act === 'colour') {
-      element.addEventListener('change', () => {
-        model().plane.nav_lights[+element.dataset.i].color =
-          [1, 3, 5].map((offset) => parseInt(element.value.substr(offset, 2), 16));
-      });
-      return;
-    }
-
-    const actions = {
-      'add-plane': () => {
-        model().plane = {board: 'pico', sbus_pin: 5,
-          max_brightness: 200, render_hz: 200, strips: [], relays: [], nav_lights: []};
-      },
-      'add-strip': () => {
-        const plane = model().plane;
-        plane.strips.push({name: 'strip' + plane.strips.length, pin: freePin(plane),
-          count: 30, zone: 0, offset: 0, reverse: false});
-      },
-      'add-relay': () => {
-        const plane = model().plane;
-        plane.relays.push({name: 'relais' + plane.relays.length, pin: freePin(plane),
-          zone: 0, source: 'cue', arg: 1, threshold: 64, active_low: true,
-          min_on_ms: 200, min_off_ms: 200});
-      },
-      'add-nav': () => model().plane.nav_lights.push({strip: 0, index: 0, color: [255, 255, 255]}),
-      del: () => model().plane[element.dataset.list].splice(+element.dataset.i, 1),
-      'bus-toggle': () => {
-        const entry = model();
-        if (entry.bus && entry.bus.enabled) entry.bus.enabled = false;
-        else entry.bus = {enabled: true, relays: (entry.bus && entry.bus.relays) || []};
-      },
-      'bus-pick': () => applyBusChoice(model(), +element.dataset.zones,
-                                       +element.dataset.relays),
-    };
-    element.onclick = () => { actions[element.dataset.act](); renderModels(); };
-  });
+function freeJack(id) {
+  if (CONFIG.models.some((model) => model.tx_port === id)) return;
+  const port = (CONFIG.tx_ports || []).find((entry) => entry.id === id);
+  if (port) port.format = 'off';
 }
 
-function markClashes() {
-  CONFIG.models.forEach((model, mi) => {
-    if (!model.plane) return;
-    const users = pinUsers(model.plane);
-    $('models').querySelectorAll(`[data-m="${mi}"][data-key="pin"]`).forEach((input) => {
-      const bad = (users.get(+input.value) || []).length > 1;
-      input.classList.toggle('err', bad);
-      const row = input.closest('tr');
-      if (row) {
-        row.classList.toggle('clash', bad);
-        row.title = bad ? `GPIO ${input.value} doppelt: ${users.get(+input.value).join(', ')}` : '';
+/* The headline facts, and any problem visible without opening the model. */
+function modelCard(model) {
+  const plane = model.plane;
+  const zones = Math.max(1, Math.floor(model.channels.length / 4));
+  const busRelays = ((model.bus && model.bus.relays) || []).length;
+  const port = (CONFIG.tx_ports || []).find((entry) => entry.id === model.tx_port);
+  const last = model.tx_offset + 8;
+
+  const facts = [`${zones} Zone${zones === 1 ? '' : 'n'}`];
+  if (plane) {
+    const outputs = plane.outputs || [];
+    const pixels = outputs.reduce((sum, output) => sum + output.count, 0);
+    const segments = outputs.reduce((sum, output) => sum + output.segments.length, 0);
+    facts.push(outputs.length
+      ? `${outputs.length} ${outputs.length === 1 ? 'LED-Ausgang' : 'LED-Ausgänge'},
+         ${segments} Abschnitt${segments === 1 ? '' : 'e'}, ${pixels} Pixel`
+      : 'keine LED-Ausgänge');
+    if (plane.relays.length) facts.push(`${plane.relays.length} Relais`);
+    if (busRelays) facts.push(`${busRelays} davon am Bus`);
+    if (plane.nav_lights.length)
+      facts.push(`${plane.nav_lights.length} Positionslicht${
+        plane.nav_lights.length === 1 ? '' : 'er'}`);
+  }
+  if (port) facts.push(`${busLatency(zones, port.frame_us).toFixed(0)} ms je Zone`);
+
+  // Two pins on one job is the one mistake a list can still catch, and it makes
+  // the firmware misbehave rather than fail, so it is worth saying out loud.
+  const clashes = plane ? [...pinUsers(plane).entries()]
+    .filter(([, who]) => who.length > 1)
+    .map(([pin, who]) => `GPIO ${pin}: ${who.join(', ')}`) : [];
+
+  return `<div class="card model-row">
+    <div class="card-head">
+      <h2>${esc(model.name)}</h2>
+      ${plane ? '' : '<span class="tag warn-text">keine Bordkonfiguration</span>'}
+      <span class="grow"></span>
+      <button class="quiet" data-act="export" data-model="${esc(model.name)}"
+        title="Als Datei sichern, um es woanders einzulesen">Exportieren</button>
+      <button data-act="edit" data-model="${esc(model.name)}">Bearbeiten</button>
+      <button class="quiet danger" data-act="del" data-model="${esc(model.name)}"
+        title="Modell aus der Show entfernen">Entfernen</button>
+    </div>
+    <div class="card-body">
+      <div class="model-facts">
+        <span>Sender-Buchse <b>${model.tx_port + 1}</b> · GP${portGpio(model.tx_port)}</span>
+        <span>Kanal <b>${model.tx_offset + 1}–${last}</b></span>
+        ${facts.map((fact) => `<span>${fact}</span>`).join('')}
+      </div>
+      ${clashes.length ? `<div class="note err" style="margin-top:10px">
+        Doppelt belegte Anschlüsse: ${clashes.join(' · ')}</div>` : ''}
+    </div>
+    ${plane ? `<details data-wiring="${esc(model.name)}"
+      style="border-top:1px solid var(--line)">
+      <summary class="card-head" style="cursor:pointer">
+        <h2 style="font-size:13px">Wo was angeschlossen wird</h2>
+        <span class="grow"></span>
+      </summary>
+      <div class="card-body"><div class="dim" style="font-size:12px">wird geladen …</div></div>
+    </details>` : ''}
+  </div>`;
+}
+
+/* The wiring table, fetched when somebody actually opens it.
+ *
+ * It lives on the model rather than on the flashing page, because it is a
+ * property of the aircraft and not of the firmware: which GPIO carries which
+ * chain is what you look at with a soldering iron in hand, and it does not
+ * change by building anything. Fetched lazily because a page of model cards
+ * would otherwise be one request per model on every render.
+ */
+function wireModelDetails() {
+  $('models').querySelectorAll('details[data-wiring]').forEach((box) => {
+    box.ontoggle = async () => {
+      if (!box.open || box.dataset.loaded) return;
+      box.dataset.loaded = '1';
+      const body = box.querySelector('.card-body');
+      const answer = await api('/api/plane/' + encodeURIComponent(box.dataset.wiring));
+      if (!answer.ok) {
+        body.innerHTML = `<div class="note err">${esc(answer.error)}</div>`;
+        return;
       }
-    });
+      body.innerHTML = `
+        <div class="dim" style="font-size:11.5px;margin-bottom:8px">
+          ${answer.power.pixels} Pixel · Spitze ${answer.power.worst_a} A ·
+          typisch ${answer.power.typical_a} A</div>
+        <div class="tablewrap"><table>
+          <thead><tr><th>GPIO</th><th>Pin</th><th>Funktion</th><th>Angeschlossen</th><th>Hinweis</th></tr></thead>
+          <tbody>${answer.wiring.map((row) => `<tr>
+            <td class="n">${row.gpio >= 0 ? 'GP' + row.gpio : '—'}</td>
+            <td>${esc(row.physical)}</td><td>${esc(row.role)}</td>
+            <td>${esc(row.detail)}</td><td class="dim">${esc(row.note)}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <p class="dim" style="margin:10px 0 0;font-size:12px">Eigenes UBEC verwenden,
+          nicht das Empfänger-BEC. Geschaltete Relais-Lasten kommen zum LED-Strom hinzu.</p>`;
+    };
   });
 }
 
-function freePin(plane) {
-  const used = new Set([0, 1, plane.sbus_pin,
-    ...plane.strips.map((strip) => strip.pin), ...plane.relays.map((relay) => relay.pin)]);
-  for (const pin of [2, 3, 4, 6, 7, 8, 9, 14, 15, 16, 17, 18, 19, 20, 21, 22, 26, 27, 28])
-    if (!used.has(pin)) return pin;
-  return 2;
-}
+/* How long until the same zone is addressed again: one zone per RC frame. */
+const busLatency = (zones, frameUs) => zones * (frameUs || 35500) / 1000;
 
-$('btn-config-save').onclick = async () => {
+/* Writes the configuration, and says whether it landed.
+ *
+ * Called after every change to the model list. A model is not a draft the way
+ * a timeline is: there is one aircraft, it either has three zones or four, and
+ * a list that shows four while the file says three is a trap -- it is exactly
+ * the state in which somebody generates a config.h and wonders why the
+ * aircraft disagrees. So the list writes as it goes.
+ *
+ * And when a write is refused -- the bridge takes no configuration while a show
+ * is running -- the list is put back to what the file says rather than left
+ * holding a change nobody can see. There is no save button to retry with, and
+ * a browser quietly holding the only copy of an edit is the trap all over
+ * again, one screen further along.
+ */
+async function saveConfig({quiet = false} = {}) {
   const answer = await post('/api/config', {config: CONFIG});
   note($('config-note'), [answer.ok ? answer.note : answer.error], answer.ok ? 'ok' : 'err');
-  if (answer.ok) { toast('Konfiguration gespeichert.', 'ok', 3000); loadConfig(); }
-  else toast(answer.error, 'err', 12000);
-};
-
-$('btn-config-reload').onclick = () => {
-  $('config-note').classList.add('hidden');
+  if (!answer.ok) {
+    toast(`${answer.error} — die Änderung wurde verworfen, die Liste zeigt `
+          + 'wieder, was in der Datei steht.', 'err', 14000);
+  } else if (!quiet) {
+    toast('Konfiguration gespeichert.', 'ok', 3000);
+  }
   loadConfig();
+  return !!answer.ok;
+}
+
+/* A second window rather than a panel: it is meant to sit on another screen
+ * while the timeline is edited on this one, and a panel cannot do that. Reusing
+ * the same window name means clicking again focuses the one already open
+ * instead of piling up copies. */
+let PREVIEW_WINDOW = null;
+$('btn-preview').onclick = () => {
+  if (PREVIEW_WINDOW && !PREVIEW_WINDOW.closed) { PREVIEW_WINDOW.focus(); return; }
+  PREVIEW_WINDOW = window.open('preview.html', 'lightshow-preview',
+                               'width=980,height=760');
+  if (!PREVIEW_WINDOW) toast('Der Browser hat das Fenster blockiert.', 'warn', 6000);
 };
 
 /* The wizard lives in wizard.js; this is the only way in. */
@@ -2104,6 +2621,7 @@ function fillWiringModels() {
 async function loadWiring() {
   const name = $('wiring-model').value;
   const out = $('wiring-out');
+  $('plane-target').textContent = '';
   if (!name) {
     out.innerHTML = '<div class="note">Kein Modell in der Show-Konfiguration.</div>';
     return;
@@ -2115,33 +2633,25 @@ async function loadWiring() {
     return;
   }
 
+  $('plane-target').textContent = answer.target;
+  // What is left here is firmware and nothing else: the command line that does
+  // the same thing outside the interface, and the header that comes out. Where
+  // the wires go is a property of the model, and lives on the model's card.
   out.innerHTML = `
     <div class="card" style="margin-bottom:14px">
-      <div class="card-head"><h2>Wo was angeschlossen wird</h2>
+      <div class="card-head"><h2>Auf der Kommandozeile</h2>
         <span class="grow"></span>
-        <span class="dim" style="font-size:11.5px">${answer.power.pixels} Pixel ·
-          Spitze ${answer.power.worst_a} A · typisch ${answer.power.typical_a} A</span></div>
-      <div class="tablewrap"><table>
-        <thead><tr><th>GPIO</th><th>Pin</th><th>Funktion</th><th>Angeschlossen</th><th>Hinweis</th></tr></thead>
-        <tbody>${answer.wiring.map((row) => `<tr>
-          <td class="n">${row.gpio >= 0 ? 'GP' + row.gpio : '—'}</td>
-          <td>${esc(row.physical)}</td><td>${esc(row.role)}</td>
-          <td>${esc(row.detail)}</td><td class="dim">${esc(row.note)}</td></tr>`).join('')}</tbody>
-      </table></div>
-      <div class="card-body" style="border-top:1px solid var(--line)">
-        <p class="dim" style="margin:0;font-size:12px">Eigenes UBEC verwenden, nicht das
-          Empfänger-BEC. Geschaltete Relais-Lasten kommen zum LED-Strom hinzu.</p>
-      </div>
-    </div>
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-head"><h2>Auf der Kommandozeile</h2></div>
+        <span class="dim" style="font-size:11.5px">dasselbe ohne diese Oberfläche</span></div>
       <div class="card-body"><p class="dim" style="margin:0 0 10px;font-size:12px">Schreibt
         <code>${esc(answer.target)}</code>.</p><pre class="code">${esc(answer.build)}</pre></div>
     </div>
-    <div class="card">
-      <div class="card-head"><h2>Generierte config.h</h2></div>
+    <details class="card">
+      <summary class="card-head" style="cursor:pointer"><h2>Generierte config.h</h2>
+        <span class="grow"></span>
+        <span class="dim" style="font-size:11.5px">${answer.header.split('\n').length} Zeilen</span>
+      </summary>
       <div class="card-body"><pre class="code">${esc(answer.header)}</pre></div>
-    </div>`;
+    </details>`;
 }
 
 $('wiring-model').onchange = loadWiring;
@@ -2252,8 +2762,9 @@ document.addEventListener('keydown', (event) => {
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
     event.preventDefault();
-    if (VIEW === 'models' && !LOCKED) $('btn-config-save').click();
-    else saveProject();
+    // Both halves write themselves; the shortcut only answers the reflex.
+    if (VIEW === 'models') toast('Modelle werden von selbst gespeichert.', 'ok', 2500);
+    else saveProject();          // already on a timer; this is for the fingers
     return;
   }
   if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -2268,9 +2779,12 @@ document.addEventListener('keydown', (event) => {
   if (event.code === 'Space') {
     event.preventDefault();
     if (tag === 'BUTTON') event.target.blur();
+    if (event.repeat) return;          // hält jemand die Taste, ist das eine Ansage
     FOLLOW = true;
-    post('/api/transport',
-      {action: STATE && STATE.transport && STATE.transport.playing ? 'pause' : 'play'});
+    // Die Bridge entscheidet, was das Gegenteil des Jetzigen ist -- hier wäre
+    // das Wissen bis zu 200 ms alt, und zwei Anschläge kurz hintereinander
+    // schickten dann zweimal 'play'.
+    post('/api/transport', {action: 'toggle'});
     return;
   }
   if (event.key === 'Home') { event.preventDefault(); $('btn-stop').click(); return; }
@@ -2292,12 +2806,13 @@ document.addEventListener('keydown', (event) => {
 /* ====================================================================== events */
 
 function connect() {
-  const events = new EventSource('/api/events');
-  events.onmessage = (message) => renderStatus(JSON.parse(message.data));
-  events.onerror = () => {
-    $('led-midi').className = $('led-pico').className = 'led bad';
-    $('offline').classList.remove('hidden');
-    // EventSource reconnects on its own; the overlay clears with the next frame.
+  EVENTS = new EventSource('/api/events');
+  EVENTS.onmessage = (message) => renderStatus(JSON.parse(message.data));
+  EVENTS.onerror = () => {
+    // EventSource reconnects on its own; the overlay clears with the next
+    // frame. After a deliberate shutdown there is nothing to come back, and
+    // showOffline() says so instead of talking about a broken connection.
+    showOffline();
   };
 }
 

@@ -158,6 +158,10 @@ kbd {
   display: grid; place-items: center;
 }
 .rail .foot button:hover { color: var(--text); background: var(--surface-2); }
+/* Der einzige Knopf hier, der etwas beendet -- er faerbt sich erst beim
+   Hinfassen, damit er nicht dauernd nach Alarm aussieht. */
+.rail .foot button.quit:hover { color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 14%, transparent); }
 .rail .foot svg { width: 17px; height: 17px; }
 
 /* ----------------------------------------------------------------- topbar -- */
@@ -273,7 +277,13 @@ input, select, textarea {
   border-radius: 7px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--text); max-width: 100%;
 }
-input:hover, select:hover { border-color: var(--line-2); }
+input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--line-2); }
+/* A field that cannot be edited has to look like it. Buttons had this from the
+   start; inputs did not, so a fixed pin invited a click that did nothing. */
+input:disabled, select:disabled, textarea:disabled {
+  opacity: .5; cursor: not-allowed; background: var(--surface);
+  border-style: dashed;
+}
 input[type=number] { width: 82px; }
 input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
 input[type=color] { width: 42px; height: 30px; padding: 2px; cursor: pointer; }
@@ -338,26 +348,6 @@ canvas.strip {
 .cue[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-dim); }
 .cue[aria-pressed="true"] .n { color: var(--text); }
 
-/* ----------------------------------------------------------------- relays -- */
-
-.relays { display: grid; gap: 5px; margin-bottom: 4px; }
-.relay {
-  display: grid; grid-template-columns: 9px 1fr auto; gap: 4px 8px; align-items: center;
-  padding: 7px 10px; border-radius: 8px;
-  background: var(--surface-2); border: 1px solid var(--line);
-}
-.relay > i {
-  grid-row: 1 / 3; width: 9px; height: 9px; border-radius: 50%;
-  background: var(--text-3); box-shadow: 0 0 7px currentColor; color: transparent;
-}
-.relay.on  > i { background: var(--ok);   color: var(--ok); }
-.relay.pulse > i { background: var(--live); color: var(--live); animation: beat 1s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .relay.pulse > i { animation: none; } }
-.relay .rn { font-size: 12px; font-weight: 600; }
-.relay .rs { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: .05em; }
-.relay .rw { grid-column: 2 / 4; font-size: 10.5px; color: var(--text-3); }
-.relay.off { opacity: .62; }
-
 /* ================================================================= Bühne/Live */
 
 .stage {
@@ -398,6 +388,26 @@ canvas.strip {
 .meter.off .t > i { background: var(--text-3); opacity: .45; }
 
 details.raw { border-top: 1px solid var(--line); }
+/* A card head that folds its card open. The browser's own marker is a list
+   item, which inside a flex row lands on a line of its own above the heading --
+   so it is taken away and replaced by one at the end of the row, where the eye
+   looks for it. */
+/* `.card > .card-head` only reaches a direct child, and a fold-out sits one
+   <details> deeper -- so the head has to be laid out again here or the heading
+   and the marker stack instead of sharing a row. */
+summary.card-head {
+  list-style: none; padding: 13px 16px;
+  display: flex; align-items: center; gap: 10px;
+}
+summary.card-head h2 { font-size: 14px; font-weight: 650; margin: 0; }
+summary.card-head::-webkit-details-marker { display: none; }
+summary.card-head::after {
+  content: '▾'; color: var(--text-3); font-size: 11px; margin-left: 4px;
+  display: inline-block; transition: transform .12s;
+}
+details[open] > summary.card-head::after { transform: rotate(180deg); }
+summary.card-head:hover { background: var(--surface-2); }
+
 details.raw > summary {
   padding: 8px 14px; font-size: 11.5px; color: var(--text-3); cursor: pointer;
   list-style: none; user-select: none;
@@ -530,7 +540,15 @@ tr.clash td { background: color-mix(in srgb, var(--bad) 11%, transparent); }
   font-size: 12.5px; font-weight: 600; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
 }
-.head .hs { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-3); }
+/* Der Kopf ist genau eine Spurhoehe hoch und zentriert seinen Inhalt. Wird die
+   Unterzeile zweizeilig, waechst er darueber hinaus und wird oben und unten
+   beschnitten -- oben steht der Name. Also bleibt die Unterzeile einzeilig und
+   kuerzt sich selbst; ganz zu lesen ist sie im Tooltip und in der Auswahl. */
+.head .hs {
+  display: flex; align-items: center; gap: 6px; font-size: 10.5px;
+  color: var(--text-3); min-width: 0;
+}
+.head .ht { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .head .mute {
   padding: 1px 6px; font-size: 10px; border-radius: 5px; line-height: 15px;
   background: var(--surface-3); border: 1px solid var(--line); color: var(--text-3);
@@ -607,10 +625,35 @@ tr.clash td { background: color-mix(in srgb, var(--bad) 11%, transparent); }
         background: linear-gradient(to right, rgba(0,0,0,.7), transparent); }
 .fade.o { background: linear-gradient(to left, rgba(0,0,0,.7), transparent); }
 
+/* ------------------------------------------------------------ Kontextmenue */
+
+.ctx {
+  position: fixed; z-index: 200; min-width: 208px; padding: 5px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.45);
+  font-size: 13px; user-select: none;
+}
+.ctx button {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 10px; border: none; border-radius: 7px;
+  background: transparent; color: var(--text); text-align: left; cursor: pointer;
+}
+.ctx button:hover:not(:disabled) { background: var(--surface-3); }
+.ctx button:disabled { color: var(--text-3); cursor: default; }
+.ctx button.danger { color: var(--bad); }
+.ctx button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bad) 14%, transparent);
+}
+.ctx .key { margin-left: auto; color: var(--text-3); font-size: 11.5px; }
+.ctx hr { border: none; border-top: 1px solid var(--line); margin: 5px 6px; }
+
 .playhead {
-  position: absolute; top: 0; bottom: 0; width: 2px; z-index: 5;
+  position: absolute; top: 0; bottom: 0; left: var(--head-w); width: 2px; z-index: 5;
   background: var(--bad); pointer-events: none;
   box-shadow: 0 0 9px color-mix(in srgb, var(--bad) 65%, transparent);
+  /* Bewegt wird per transform, nicht per left: dreissig Mal in der Sekunde ein
+     Layout anzustossen ist genau das Ruckeln, das hier weg soll. */
+  will-change: transform;
 }
 .playhead::before {
   content: ""; position: absolute; top: 0; left: -5px;
@@ -701,7 +744,9 @@ dialog td { border: none; padding: 4px 12px 4px 0; }
 
 /* ================================================================== wizard */
 
-dialog.wizard { max-width: min(880px, calc(100vw - 32px)); width: 880px; }
+/* Wide enough that the relay table -- the widest thing in here -- fits
+ * without its delete button sliding out of sight. */
+dialog.wizard { max-width: min(1060px, calc(100vw - 32px)); width: 1060px; }
 dialog.wizard td { padding: 3px 6px 3px 0; }
 
 .wiz-steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -709,15 +754,137 @@ dialog.wizard td { padding: 3px 6px 3px 0; }
   font-size: 12px; padding: 4px 11px; border-radius: 999px;
   border: 1px solid var(--line); color: var(--text-3); white-space: nowrap;
 }
+/* Every tab is a way in, so they look like it. */
+.wiz-step { cursor: pointer; user-select: none; }
+.wiz-step:hover { border-color: var(--line-2); color: var(--text-2); }
 .wiz-step.done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.wiz-step.bad  { color: var(--live); border-color: color-mix(in srgb, var(--live) 45%, transparent); }
 .wiz-step.on {
   color: var(--accent); background: var(--accent-dim);
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
+.wiz-step.on.bad {
+  color: var(--live); background: color-mix(in srgb, var(--live) 12%, transparent);
+  border-color: color-mix(in srgb, var(--live) 55%, transparent);
+}
+
+/* Choosing a board is choosing a picture, not reading a list -- somebody with
+ * the thing in their hand should recognise it at a glance. */
+.wiz-boards {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.wiz-board {
+  display: flex; flex-direction: column; gap: 10px; text-align: left;
+  padding: 14px; border-radius: 12px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line);
+  color: var(--text-2); font: inherit; width: 100%;
+  /* A button does not wrap its text on its own, and these are paragraphs. */
+  white-space: normal; min-width: 0;
+}
+.wiz-board:hover { border-color: var(--line-2); }
+/* The shape cards carry a drawing rather than a photograph of a board, so they
+   need a fixed slot for it -- otherwise a 64-unit silhouette and a 300 px
+   photograph end up different sizes in the same row. */
+.wiz-kind { flex-direction: row; align-items: center; gap: 14px; }
+/* Not disabled: clicking it is meaningful -- it swaps the two. Dimmed, so the
+   card says "this one instead of that one" before it is clicked. */
+.wiz-board.blocked { opacity: .55; border-style: dashed; }
+.wiz-board.blocked:hover { opacity: .8; }
+.wiz-kind-art {
+  width: 58px; height: 58px; flex: 0 0 auto;
+  fill: var(--text-3); stroke: var(--text-3);
+}
+.wiz-kind.on .wiz-kind-art { fill: var(--accent); stroke: var(--accent); }
+.wiz-board.on {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-dim);
+}
+.wiz-board img {
+  width: 100%; max-height: 190px; object-fit: contain; border-radius: 8px;
+}
+/* The free build is drawn rather than photographed, so it needs the same slot
+   the photographs get -- otherwise the bare board sits at a different size in
+   the same row. */
+.wiz-pico {
+  display: block; width: 100%; max-height: 190px; border-radius: 8px;
+  padding: 18px 10px; background: var(--surface-3);
+}
+.wiz-board-text b { display: block; font-size: 13.5px; color: var(--text); }
+.wiz-board.on .wiz-board-text b { color: var(--accent); }
+.wiz-board-text span { display: block; font-size: 12px; margin-top: 3px; }
+.wiz-board-text ul {
+  margin: 8px 0 0; padding-left: 16px; font-size: 11.5px; color: var(--text-3);
+}
+.wiz-board-text li { margin-bottom: 2px; }
+
+/* One physical chain and the sections cut out of it: a box, so it is obvious
+ * which segments belong to which GPIO. */
+.wiz-card {
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 12px; background: var(--surface-2);
+}
+/* The colour a navigation light will actually show, on its own button. */
+.nav-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 5px; vertical-align: baseline;
+  border: 1px solid color-mix(in srgb, var(--text) 25%, transparent);
+}
+
+/* A relay lane is shorter than a light lane: there is no effect to preview,
+ * only a switch that is closed or open. The head carries the same override,
+ * or the two columns would drift apart row by row -- and it still has to hold
+ * two lines of text, which is what sets the floor at 46px. */
+.lane.relay, .head.relay { --lane-h: 46px; }
+.head.relay { padding-top: 6px; padding-bottom: 6px; gap: 2px; }
+/* One line is enough on a switch block, and it is the label that matters. */
+.item.switched .cap2 { display: none; }
+.item.switched {
+  background: color-mix(in srgb, var(--live) 26%, transparent);
+  border-color: color-mix(in srgb, var(--live) 55%, transparent);
+}
+.item.switched .cap { color: var(--live); }
+.item.switched.sel {
+  background: color-mix(in srgb, var(--live) 38%, transparent);
+}
+
+/* A sentence under a field, saying what the number actually does. */
+.wiz-hint {
+  display: block; margin-top: 5px; font-size: 11.5px; line-height: 1.45;
+  color: var(--text-3);
+}
+
+td.nowrap { white-space: nowrap; }
+td.nowrap button + button { margin-left: 4px; }
+
+.wiz-sub {
+  font-size: 11.5px; color: var(--text-3); text-transform: uppercase;
+  letter-spacing: .05em; margin: 14px 0 6px;
+}
+
+/* The models overview is a list of facts, not a form. */
+.model-row { margin-bottom: 12px; }
+.model-facts {
+  display: flex; flex-wrap: wrap; gap: 6px 18px;
+  font-size: 12.5px; color: var(--text-2);
+}
+.model-facts b { color: var(--text); font-weight: 600; }
+.model-row .card-head .tag {
+  font-size: 11px; border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 8px;
+}
 
 /* Tall enough to hold the longest step without the dialog jumping in height
  * every time a row is added. */
-.wiz-body { min-height: 340px; max-height: min(60vh, 560px); overflow: auto; }
+/* The padding is not decoration: this box scrolls, so it clips, and the focus
+   ring sits 4 px *outside* the field it belongs to. Without room for it, the
+   first field of a step comes up with its ring shaved off on two sides -- which
+   reads as a rendering fault rather than as focus. The negative margin keeps
+   the text lined up with the paragraph above the box. */
+.wiz-body {
+  min-height: 340px; max-height: min(60vh, 560px); overflow: auto;
+  padding: 5px; margin: -5px;
+}
 
 .wiz-grid {
   display: grid; gap: 8px;
@@ -768,6 +935,7 @@ table.bus-matrix th.bus-zone { text-align: center; }
 .wiz-list { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--text-2); }
 .wiz-list li { margin-bottom: 3px; }
 .warn-text { color: var(--live); }
+.ok-text { color: var(--ok); }
 
 /* =============================================================== responsive */
 

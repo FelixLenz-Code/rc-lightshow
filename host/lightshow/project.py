@@ -13,11 +13,14 @@ Downloads folder is tidied up.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import shutil
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any
 
 PROJECT_FILE = "project.json"
@@ -96,21 +99,67 @@ class LightTrack:
 
 
 @dataclass
+class RelayBlock:
+    """A stretch of time in which one relay is on.
+
+    A relay has no level, no colour and no fades -- it is a switch. So a block
+    carries nothing but where it starts, how long it lasts, and a name for the
+    person reading the timeline.
+    """
+
+    start_s: float
+    duration_s: float
+    label: str = ""
+
+    @property
+    def end_s(self) -> float:
+        return self.start_s + self.duration_s
+
+
+@dataclass
+class RelayTrack:
+    """One relay of one model, addressed by its bit -- the same index the
+    board's relay table and ``bus.relays`` are ordered by."""
+
+    model: str
+    relay: int = 0
+    name: str = ""
+    blocks: list[RelayBlock] = field(default_factory=list)
+
+    @property
+    def title(self) -> str:
+        return self.name or f"{self.model} Relais {self.relay + 1}"
+
+
+@dataclass
 class Project:
     name: str = "unbenannt"
     path: Path | None = None
+    # Which aircraft this show is for. Kept as its own list rather than read
+    # back off the tracks: it is the question asked when a project is created,
+    # and it stays true after somebody has emptied every track of a model. The
+    # list of projects can also answer "what is this for" without opening one.
+    models: list[str] = field(default_factory=list)
     audio_tracks: list[AudioTrack] = field(default_factory=list)
     light_tracks: list[LightTrack] = field(default_factory=list)
+    relay_tracks: list[RelayTrack] = field(default_factory=list)
 
     @property
     def duration_s(self) -> float:
         ends = [clip.end_s for track in self.audio_tracks for clip in track.clips]
         ends += [block.end_s for track in self.light_tracks for block in track.blocks]
+        ends += [block.end_s for track in self.relay_tracks for block in track.blocks]
         return max(ends) if ends else 0.0
 
     def track_for(self, model: str, zone: int) -> LightTrack | None:
         for track in self.light_tracks:
             if track.model == model and track.zone == zone:
+                return track
+        return None
+
+    def relay_track_for(self, model: str, relay: int) -> RelayTrack | None:
+        for track in self.relay_tracks:
+            if track.model == model and track.relay == relay:
                 return track
         return None
 
@@ -165,11 +214,20 @@ def _block_from(data: dict, where: str) -> LightBlock:
     return block
 
 
+def _relay_block_from(data: dict, where: str) -> RelayBlock:
+    return RelayBlock(
+        start_s=_num(data.get("start_s", 0), "start_s", where, 0, 86400),
+        duration_s=_num(data.get("duration_s", 1), "duration_s", where, 0.01, 86400),
+        label=str(data.get("label", "")),
+    )
+
+
 def from_dict(data: dict, path: Path | None = None) -> Project:
     if not isinstance(data, dict):
         raise ProjectError("Projekt: oberste Ebene muss ein Objekt sein")
 
     project = Project(name=str(data.get("name", "unbenannt")), path=path)
+    project.models = [str(name) for name in (data.get("models") or [])]
 
     for index, entry in enumerate(data.get("audio_tracks") or []):
         where = f"audio_tracks[{index}]"
@@ -212,6 +270,44 @@ def from_dict(data: dict, path: Path | None = None) -> Project:
                 )
         project.light_tracks.append(track)
 
+    seen_relays: set[tuple[str, int]] = set()
+    for index, entry in enumerate(data.get("relay_tracks") or []):
+        where = f"relay_tracks[{index}]"
+        if not entry.get("model"):
+            raise ProjectError(f"{where}: 'model' fehlt")
+        track = RelayTrack(
+            model=str(entry["model"]),
+            relay=int(_num(entry.get("relay", 0), "relay", where, 0, 7)),
+            name=str(entry.get("name", "")),
+        )
+        key = (track.model, track.relay)
+        if key in seen_relays:
+            raise ProjectError(
+                f"{where}: {track.model} Relais {track.relay} gibt es doppelt")
+        seen_relays.add(key)
+
+        track.blocks = [_relay_block_from(block, f"{where}.blocks[{i}]")
+                        for i, block in enumerate(entry.get("blocks") or [])]
+        track.blocks.sort(key=lambda block: block.start_s)
+
+        # Two overlapping "on" blocks say the same thing twice, and the gap
+        # between them would be the only thing that mattered. Merging them
+        # silently would move an edge somebody dragged deliberately.
+        for earlier, later in zip(track.blocks, track.blocks[1:]):
+            if later.start_s < earlier.end_s - 1e-6:
+                raise ProjectError(
+                    f"{where}: Bloecke ueberlappen bei {later.start_s:.2f} s "
+                    f"-- ein Relais ist an oder aus, zweimal an gibt es nicht"
+                )
+        project.relay_tracks.append(track)
+
+    # Written since the project tab exists; anything older says which aircraft
+    # it is for by having tracks for them.
+    if not project.models:
+        project.models = list(dict.fromkeys(
+            [track.model for track in project.light_tracks]
+            + [track.model for track in project.relay_tracks]))
+
     return project
 
 
@@ -219,6 +315,7 @@ def to_dict(project: Project) -> dict:
     return {
         "version": VERSION,
         "name": project.name,
+        "models": list(project.models),
         "audio_tracks": [
             {
                 "name": track.name,
@@ -260,6 +357,22 @@ def to_dict(project: Project) -> dict:
                 ],
             }
             for track in project.light_tracks
+        ],
+        "relay_tracks": [
+            {
+                "model": track.model,
+                "relay": track.relay,
+                "name": track.name,
+                "blocks": [
+                    {
+                        "start_s": block.start_s,
+                        "duration_s": block.duration_s,
+                        "label": block.label,
+                    }
+                    for block in track.blocks
+                ],
+            }
+            for track in project.relay_tracks
         ],
     }
 
@@ -319,6 +432,48 @@ def import_audio(project: Project, source: str | Path) -> str:
     return f"{AUDIO_DIR}/{target.name}"
 
 
+def audio_in_use(project: Project) -> set[str]:
+    """Every audio file some clip still points at, as a relative path."""
+    return {clip.file for track in project.audio_tracks for clip in track.clips}
+
+
+def audio_on_disk(directory: str | Path) -> list[str]:
+    """Every file lying in the project's audio folder, as a relative path."""
+    folder = Path(directory) / AUDIO_DIR
+    if not folder.is_dir():
+        return []
+    return sorted(f"{AUDIO_DIR}/{path.name}"
+                  for path in folder.iterdir() if path.is_file())
+
+
+def audio_bytes(directory: str | Path, names: Iterable[str]) -> int:
+    total = 0
+    for name in names:
+        path = Path(directory) / name
+        if path.is_file():
+            total += path.stat().st_size
+    return total
+
+
+def drop_audio(directory: str | Path, names: Iterable[str]) -> list[str]:
+    """Deletes named audio files from a project. Returns what actually went.
+
+    Only inside the project's own audio folder, and only plain files -- the
+    names come out of a document that a person may have edited, and a delete
+    that follows `../` wherever it points is a delete nobody can take back.
+    """
+    directory = Path(directory).resolve()
+    folder = (directory / AUDIO_DIR).resolve()
+    gone: list[str] = []
+    for name in names:
+        path = (directory / name).resolve()
+        if path.parent != folder or not path.is_file():
+            continue
+        path.unlink()
+        gone.append(name)
+    return gone
+
+
 def list_projects(root: str | Path) -> list[dict]:
     root = Path(root)
     found = []
@@ -327,10 +482,105 @@ def list_projects(root: str | Path) -> list[dict]:
     for entry in sorted(root.iterdir()):
         file = entry / PROJECT_FILE
         if file.is_file():
+            # Read straight out of the file rather than through `load`: the
+            # list has to survive a project that no longer parses, and say so
+            # by the little it can still read.
+            models: list[str] = []
+            tracks = 0
             try:
                 data = json.loads(file.read_text())
                 name = str(data.get("name", entry.name))
+                models = [str(m) for m in (data.get("models") or [])]
+                if not models:
+                    models = list(dict.fromkeys(
+                        str(t.get("model")) for kind in ("light_tracks", "relay_tracks")
+                        for t in (data.get(kind) or []) if t.get("model")))
+                tracks = sum(len(data.get(kind) or []) for kind in
+                             ("audio_tracks", "light_tracks", "relay_tracks"))
             except (OSError, json.JSONDecodeError):
                 name = entry.name
-            found.append({"dir": entry.name, "name": name})
+                data = {}
+            leftovers = sorted(set(audio_on_disk(entry)) - {
+                str(c.get("file")) for t in (data.get("audio_tracks") or [])
+                for c in (t.get("clips") or []) if c.get("file")})
+            found.append({"dir": entry.name, "name": name,
+                          "models": models, "tracks": tracks,
+                          # What lies in the audio folder that nothing points
+                          # at. Not deleted here -- only counted, so the tab can
+                          # offer to.
+                          "spare_audio": len(leftovers),
+                          "spare_bytes": audio_bytes(entry, leftovers)})
     return found
+
+
+# ------------------------------------------------------ carrying one project
+
+
+def export_zip(directory: str | Path) -> bytes:
+    """A project folder as a zip: the document and the audio beside it.
+
+    A project is a folder on purpose -- the audio is copied in rather than
+    linked, so the folder is the whole show. Carrying it is therefore zipping
+    it, and nothing has to be reassembled at the other end.
+    """
+    directory = Path(directory)
+    if not (directory / PROJECT_FILE).is_file():
+        raise ProjectError(f"{directory} ist kein Projektordner")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(directory.rglob("*")):
+            if path.is_file() and path.name != PROJECT_FILE + ".bak":
+                archive.write(path, path.relative_to(directory).as_posix())
+    return buffer.getvalue()
+
+
+def import_zip(data: bytes, root: str | Path, wanted: str) -> tuple[Path, list[str]]:
+    """Unpacks an exported project into `root`, under a free folder name.
+
+    Returns the folder and whatever is worth saying about it. Refuses anything
+    that is not a project, and anything whose entries point outside the folder
+    they are supposed to land in -- a zip can name `../../etc/whatever`, and
+    unpacking one blind is how an archive writes wherever it likes.
+    """
+    root = Path(root)
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as exc:
+        raise ProjectError(f"keine lesbare Zip-Datei: {exc}") from exc
+
+    names = archive.namelist()
+    if PROJECT_FILE not in names:
+        raise ProjectError(
+            f"Im Archiv liegt keine {PROJECT_FILE} — das ist kein Projekt."
+        )
+    for name in names:
+        target = (root / "x" / name).resolve()
+        if not str(target).startswith(str((root / "x").resolve()) + "/") \
+                and target != (root / "x").resolve():
+            raise ProjectError(f"Das Archiv will nach '{name}' schreiben.")
+
+    try:
+        document = json.loads(archive.read(PROJECT_FILE))
+    except (json.JSONDecodeError, KeyError) as exc:
+        raise ProjectError(f"{PROJECT_FILE} im Archiv: {exc}") from exc
+    # Loaded before anything is written, so a broken archive leaves no folder.
+    project = from_dict(document)
+
+    name = safe_name(wanted or project.name)
+    directory = root / name
+    counter = 2
+    while directory.exists():
+        directory = root / f"{name}_{counter}"
+        counter += 1
+
+    directory.mkdir(parents=True)
+    archive.extractall(directory)
+    project.path = directory
+    save(project, directory)
+
+    notes: list[str] = []
+    if directory.name != name:
+        notes.append(f"Ordner '{name}' gibt es schon, liegt jetzt in "
+                     f"'{directory.name}'")
+    return directory, notes

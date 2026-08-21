@@ -24,11 +24,11 @@ def make_show(min_us: int = 1000, max_us: int = 2000) -> ShowCfg:
     return ShowCfg(
         ports=[PortCfg(id=0, name="tx", nchan=8, min_us=min_us, max_us=max_us)],
         models=[
-            ModelCfg("eule", 1, 0, tx_offset=0, channels=[
-                ChannelCfg(role="cue", cc=20, quantize=32, failsafe=min_us),
-                ChannelCfg(role="hue", cc=21, failsafe=1500),
-                ChannelCfg(role="brightness", cc=22, failsafe=min_us),
-                ChannelCfg(role="param", cc=23, failsafe=1500),
+            ModelCfg("eule", 0, tx_offset=0, channels=[
+                ChannelCfg(role="cue", quantize=32, failsafe=min_us),
+                ChannelCfg(role="hue", failsafe=1500),
+                ChannelCfg(role="brightness", failsafe=min_us),
+                ChannelCfg(role="param", failsafe=1500),
             ]),
         ],
     )
@@ -299,16 +299,16 @@ def two_model_show() -> ShowCfg:
     Channel numbers are counted per transmitter, so both models own a channel 1.
     """
     channels = lambda: [                                        # noqa: E731
-        ChannelCfg(role="cue", cc=20, quantize=32, failsafe=1000),
-        ChannelCfg(role="hue", cc=21, failsafe=1500),
-        ChannelCfg(role="brightness", cc=22, failsafe=1000),
-        ChannelCfg(role="param", cc=23, failsafe=1500),
+        ChannelCfg(role="cue", quantize=32, failsafe=1000),
+        ChannelCfg(role="hue", failsafe=1500),
+        ChannelCfg(role="brightness", failsafe=1000),
+        ChannelCfg(role="param", failsafe=1500),
     ]
     return ShowCfg(
         ports=[PortCfg(id=0, name="eule_tx", nchan=8),
                PortCfg(id=1, name="falke_tx", nchan=8)],
-        models=[ModelCfg("eule", 1, 0, tx_offset=0, channels=channels()),
-                ModelCfg("falke", 2, 1, tx_offset=0, channels=channels())],
+        models=[ModelCfg("eule", 0, tx_offset=0, channels=channels()),
+                ModelCfg("falke", 1, tx_offset=0, channels=channels())],
     )
 
 

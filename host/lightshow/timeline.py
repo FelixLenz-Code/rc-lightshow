@@ -2,7 +2,7 @@
 
 The editor places blocks on a track; this module answers "what does every
 channel look like at second t". It produces exactly the same frame shape as the
-MIDI mapper, so the sending loop does not care where the values came from.
+resting mapper, so the sending loop does not care where the values came from.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from . import bus as bus_mode
 from .config import (CHANNELS_PER_ZONE, ChannelCfg, ModelCfg, PortCfg, ShowCfg,
                      level_us, step_us)
-from .project import LightBlock, LightTrack, Project
+from .project import (LightBlock, LightTrack, Project, RelayBlock, RelayTrack)
 
 
 @dataclass
@@ -31,6 +31,15 @@ class Binding:
     channels: list[ChannelCfg]
     model: ModelCfg | None = None
     zone: int = 0
+
+
+@dataclass
+class RelayBinding:
+    """One relay track and the bit it drives."""
+
+    track: RelayTrack
+    model: ModelCfg
+    relay: int
 
 
 def fade_factor(block: LightBlock, t: float) -> float:
@@ -56,6 +65,16 @@ def active_block(track: LightTrack, t: float) -> LightBlock | None:
     return None
 
 
+def relay_is_on(track: RelayTrack, t: float) -> bool:
+    """A relay track has no levels: a block means on, a gap means off."""
+    for block in track.blocks:
+        if block.start_s <= t < block.end_s:
+            return True
+        if block.start_s > t:
+            break                      # blocks are kept sorted
+    return False
+
+
 class Timeline:
     """Evaluates a project against a show configuration."""
 
@@ -63,6 +82,7 @@ class Timeline:
         self.show = show
         self.project = project
         self.bindings: list[Binding] = []
+        self.relay_bindings: list[RelayBinding] = []
         self.warnings: list[str] = []
         self.encoders: dict[str, bus_mode.Encoder] = {}
         self._bind()
@@ -88,18 +108,32 @@ class Timeline:
                 track=track,
                 port_id=model.tx_port,
                 port=self.show.port_by_id(model.tx_port),
-                indices=([] if model.uses_bus else
-                         [model.tx_offset + first + offset
-                          for offset in range(CHANNELS_PER_ZONE)]),
+                # No direct channels: the encoder writes all eight.
+                indices=[],
                 channels=model.channels[first:first + CHANNELS_PER_ZONE],
                 model=model,
                 zone=track.zone,
             ))
 
+        for track in self.project.relay_tracks:
+            model = by_name.get(track.model)
+            if model is None:
+                self.warnings.append(
+                    f"Spur '{track.title}': Modell '{track.model}' steht nicht in "
+                    f"der Show-Konfiguration"
+                )
+                continue
+            if track.relay >= model.bus.relay_count:
+                self.warnings.append(
+                    f"Spur '{track.title}': Modell '{model.name}' hat kein Relais "
+                    f"{track.relay + 1}, nur {model.bus.relay_count}"
+                )
+                continue
+            self.relay_bindings.append(
+                RelayBinding(track=track, model=model, relay=track.relay))
+
         # One encoder per bus model, shared by every track that drives it.
         for model in self.show.models:
-            if not model.uses_bus:
-                continue
             port = self.show.port_by_id(model.tx_port)
             self.encoders[model.name] = bus_mode.Encoder(
                 zones=model.zone_count,
@@ -117,10 +151,8 @@ class Timeline:
         if channel.quantize:
             step = max(0, min(channel.quantize - 1, value))
             if channel.invert:
-                # The MIDI mapper inverts before quantising, which mirrors the
-                # step index. Skipping it here would make the same channel mean
-                # two different things depending on whether the show runs from
-                # the timeline or from the DAW.
+                # Inverting before quantising mirrors the step index, which
+                # is what the airborne decoder expects.
                 step = channel.quantize - 1 - step
             return step_us(port, channel.quantize, step)
         level = max(0, min(255, value))
@@ -132,18 +164,15 @@ class Timeline:
         """Channel values in microseconds, one list per transmitter port."""
         values = [[port.min_us] * port.nchan for port in self.show.ports]
 
-        # Channels nobody drives keep their configured failsafe.
-        for model in self.show.models:
-            if model.uses_bus:
-                continue              # its channels are code symbols, not values
-            for offset, channel in enumerate(model.channels):
-                values[model.tx_port][model.tx_offset + offset] = channel.failsafe
-
         # A bus zone nobody scheduled has to be darkened explicitly: the encoder
         # keeps its last state, and there is no failsafe channel to fall back on.
+        # The same goes for relays -- a bit nobody set would stay wherever the
+        # last block left it, which for a smoke system is the wrong direction.
         for encoder in self.encoders.values():
             for zone in range(encoder.zones):
                 encoder.set_zone(zone, bus_mode.ZoneState())
+            for relay in range(encoder.relays_count):
+                encoder.set_relay(relay, False)
 
         for binding in self.bindings:
             block = active_block(binding.track, t)
@@ -168,6 +197,11 @@ class Timeline:
                 values[binding.port_id][index] = self._to_us(
                     channel, binding.port, value)
 
+        for binding in self.relay_bindings:
+            encoder = self.encoders.get(binding.model.name)
+            if encoder is not None:
+                encoder.set_relay(binding.relay, relay_is_on(binding.track, t))
+
         now = time.monotonic()
         for model in self.show.models:
             encoder = self.encoders.get(model.name)
@@ -182,11 +216,20 @@ class Timeline:
         for binding in self.bindings:
             block = active_block(binding.track, t)
             out.append({
+                "kind": "light",
                 "track": binding.track.title,
                 "model": binding.track.model,
                 "zone": binding.track.zone,
                 "cue": block.cue if block else 0,
                 "label": block.label if block else "",
                 "level": round(block.brightness * fade_factor(block, t)) if block else 0,
+            })
+        for binding in self.relay_bindings:
+            out.append({
+                "kind": "relay",
+                "track": binding.track.title,
+                "model": binding.track.model,
+                "relay": binding.relay,
+                "on": relay_is_on(binding.track, t),
             })
         return out

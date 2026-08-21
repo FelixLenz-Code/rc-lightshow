@@ -97,11 +97,11 @@ sie sich einen Sender teilen lassen. Der Normalfall ist das nicht.
 
 - Show-Editor mit Audiospuren, Lichtspuren und Projektverwaltung; die Bridge
   spielt die Musik und liefert die Uhr
-- Bridge läuft, end-to-end mit echtem ALSA-MIDI geprüft
+- Bridge läuft, Editor und Ausgabe end-to-end geprüft
 - Beide Firmwares kompilieren warnungsfrei (`-Wall -Wextra` auf den eigenen Targets)
-- Web-UI mit Live-Status, Modelleditor, Anschlussübersicht sowie Bauen und
+- Web-UI mit Live-Status, Projekt- und Modelleditor, Anschlussübersicht sowie Bauen und
   Aufspielen der Firmware
-- 150 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
+- 405 Tests, darunter ein Abgleich der C- gegen die Python-Implementierung des
   Protokolls, eine Verifikation der PPM-Timing-Rechnung und ein Compiler-Lauf
   über die generierte Bordkonfiguration
 
@@ -118,13 +118,56 @@ diese Unsicherheiten einzeln aufzulösen.
 Die Bridge bringt eine lokale Web-UI mit. Sie startet automatisch mit:
 
 ```bash
-cd host && ./.venv/bin/python -m lightshow
+./Lightshow-x86_64.AppImage            # oder aus dem Anwendungsmenü
+cd host && ./.venv/bin/python -m lightshow    # aus dem Quellbaum
 # web interface: http://127.0.0.1:8765/
 ```
+
+Das AppImage macht die Oberfläche selbst auf, und zwar in einem **eigenen
+Fenster ohne Adresszeile und ohne fremde Tabs** — es sieht damit aus wie ein
+Programm und hat einen eigenen Platz in der Fensterleiste. Das können alle
+Browser der Chromium-Familie über `--app`; gesucht wird nach Brave, Chrome,
+Chromium, Edge und Vivaldi, auch als Flatpak. Ist keiner davon da, wird es ein
+gewöhnlicher Tab. `LIGHTSHOW_BROWSER` bestimmt den Browser von Hand,
+`LIGHTSHOW_BROWSER=tab` erzwingt den Tab. Im Quellbaum steht die Adresse in der
+ersten Zeile; `--open-browser` macht es auch dort auf.
+
+**Fenster zu heißt Feierabend.** Hat die Bridge ein eigenes Fenster
+aufgemacht, geht sie mit ihm: drei Sekunden nachdem die letzte Ansicht weg ist,
+fährt sie herunter. Ein Neuladen zählt nicht — dafür sind die drei Sekunden da —
+und ein Handy, das im selben WLAN noch zuschaut, hält sie ebenfalls am Leben.
+
+**Ausschalten von Hand** geht unten links in der Leiste, am Ein/Aus-Zeichen. Das
+braucht es, wenn kein Browser für ein eigenes Fenster da war und die Oberfläche
+in einem Tab gelandet ist: einen Tab schließt man versehentlich, also folgt die
+Bridge ihm nicht. Weil Ausschalten alle Modelle auf Failsafe fallen lässt und
+fragt die Oberfläche zweimal — und im zweiten Schritt
+liegt *Abbrechen* dort, wo eben noch *Weiter* war, damit zweimal Klicken an
+derselben Stelle nicht ausschaltet. Aus dem WLAN heraus ist der Knopf gesperrt.
+
+In beiden Fällen geht die Bridge denselben Weg wie bei Strg-C: Blackout,
+Failsafe-Frames, Ports zu.
 
 Sie braucht keine zusätzlichen Pakete — reine Python-Bordmittel. Mit
 `--web-host 0.0.0.0` ist sie auch vom Handy im selben WLAN erreichbar,
 `--no-web` schaltet sie ab.
+
+**Exportieren fragt, wohin.** Modell und Projekt öffnen einen Speichern-Dialog,
+statt in den Download-Ordner zu fallen — im eigenen Anwendungsfenster gibt es
+keine Werkzeugleiste, an der eine Download-Meldung hängen könnte. Browser ohne
+`showSaveFilePicker`, etwa Firefox, laden weiter wie bisher herunter.
+
+**Blöcke lassen sich über Spuren hinweg ziehen.** Senkrecht gezogen wechselt
+ein Effekt die Lichtspur — auch die eines anderen Modells; die Zielspur hebt
+sich dabei hervor. Über die Art hinweg geht nichts: ein Relaisblock will eine
+Relaisspur, ein Clip eine Audiospur, und ein Lichtblock hätte auf beiden nichts
+zu sagen. Ist die gezogene Stelle in der Zielspur belegt, rutscht der Block auf
+die erste Lücke dahinter — dieselbe Regel, nach der ein neuer Effekt einrastet.
+
+**Rechtsklick** in der Zeitleiste öffnet ein Menü: Effekt, Relaisblock oder
+Musik an der angeklickten Stelle einfügen, Duplizieren, Löschen, Abspielkopf
+hierher, Raster an und aus, Spureinstellungen. Es geht auf einem Block, auf
+freier Spurfläche, auf dem Spurkopf und auf dem Lineal.
 
 Die Oberfläche ist ein festes Anwendungsfenster mit vier Ansichten in der
 Leiste links — kein Framework, kein Bundler, vier Dateien in
@@ -143,35 +186,93 @@ LED-Streifen, der zeigt, was dieses Flugzeug gerade macht.
 > vergleicht beide Pixel für Pixel über alle Cues, Farbtöne, Tempi und
 > Pixelzahlen. Läuft die Portierung weg, schlägt der Test fehl.
 
-**Show** — der Editor. Timeline mit Audiospuren und Lichtspuren, Spurköpfe
-links, Inspektor rechts. Spurkopf und Inspektor nennen die Leuchtmittel, die
-eine Lichtspur wirklich ansteuert (`flaeche_links + flaeche_rechts · 60 Pixel`),
-und zeigen je Block, welche Relais der Effekt schaltet. Ausführlich unter
-[Show-Editor](#show-editor).
+**Show** — der Editor. Timeline mit Audiospuren, Lichtspuren und Relaisspuren,
+Spurköpfe links, Inspektor rechts. Spurkopf und Inspektor nennen die
+Leuchtmittel, die eine Lichtspur wirklich ansteuert (`flaeche_links +
+flaeche_rechts · 60 Pixel`); eine Relaisspur nennt Bit, GPIO und
+Control-Change. Ein Block auf einer Relaisspur heißt schlicht: hier ist es an.
+Ausführlich unter [Show-Editor](#show-editor).
+
+> **Vorschau ↗** öffnet ein eigenes Fenster: jede LED-Kette jedes Modells, mit
+> echter Pixelzahl und den Abschnitten dort, wo sie wirklich sitzen. Gedacht für
+> den zweiten Bildschirm neben der Timeline, damit sich eine Show ohne
+> angeschlossenes Modell beurteilen lässt. Die Pixelabbildung ist dieselbe wie in
+> `outputs_show()` der Bordfirmware — Offset, `reverse` und Positionslichter
+> inbegriffen. Im Reiter **Modell** liegen dieselben Abschnitte auf einem
+> Hochdecker in vier Ansichten, verschiebbar mit der Maus: ein Lauflicht wandert
+> dort wirklich über die Fläche. Der Knopf **3D** zeigt dasselbe körperlich und
+> drehbar — die vier Ansichten legen den Punkt im Raum fest, wie bei einer
+> Dreiseitenansicht, also ist dort nichts zusätzlich einzugeben. Alle fünf
+> Ansichten zeichnen mit WebGL denselben Körper; nur die Kamera unterscheidet
+> sie, damit keine Ansicht ein anderes Flugzeug meint als die nächste. Welcher
+> Körper das ist, sagt der Wizard im ersten Schritt: **Motorflugzeug,
+> Segelflugzeug oder Quadrocopter** — das steuert allein die Vorschau, an Bord
+> kommt es nie an. Beleuchtet ist der Körper wie im Nachtflug: schwacher Himmel
+> von oben, und sonst nur das, was die Streifen selbst auf die Zelle werfen,
+> in linearem Licht gerechnet und erst am Schluss für den Bildschirm kodiert.
+> Der Regler **Nacht** hellt das Modell auf, wenn ein Streifen genau angesetzt
+> werden soll.
 
 **Bühne** — je Modell und Zone eine Karte: der laufende LED-Streifen, der Name
 des Effekts, Farbton, Helligkeit und Tempo als Balken, darunter aufklappbar die
 Rohwerte in Mikrosekunden. Modelle ohne Signal pulsen bernsteinfarben — genau
-wie das echte Flugzeug im Failsafe. Darunter die Verbindungen: ob die DAW
-verbunden ist (über `aconnect` ausgelesen, also die echte Verbindung, nicht nur
-„es kommt was an“) und ob die Bodenstation hängt.
+wie das echte Flugzeug im Failsafe. Darunter die Verbindung zur Bodenstation.
 
-**Modelle** — je Modell eine Karte mit seiner **Sender-Buchse**, den LED-Strips,
-Relais und Positionslichtern. Doppelt vergebene GPIOs werden schon beim Tippen
-rot markiert, samt Hinweis, wer den Pin sonst benutzt; zwei Modelle auf derselben
-Sender-Buchse ergeben eine Warnung. Beim Speichern läuft dieselbe Prüfung wie
-beim Start, Fehler kommen im Klartext zurück („GPIO 5 wird von SBUS und Strip
+**Modelle** — eine Liste der Flugzeuge mit ihren Eckdaten: Sender-Buchse,
+Kanalblock, Zonen, LED-Ausgänge, Relais, Positionslichter und die
+Wartezeit je Zone. Doppelt vergebene GPIOs stehen als Warnung an der Karte.
+Mehrere Modelle auf **einer** Sender-Buchse sind erlaubt, solange sich ihre
+Kanalblöcke nicht überschneiden; in ein Projekt kommt davon dann nur eines.
+Aufgeklappt zeigt jede Karte, wo im Rumpf was angeschlossen wird.
+
+**Exportieren** legt ein Modell als Datei ab, **Importieren …** liest eine
+wieder ein. Zwei Konfigurationen, die sich nie begegnet sind, stoßen dabei fast
+überall zusammen — beide legen das Licht auf Buchse 1 ab Kanal 9. Das importierte Modell wird deshalb aus dem Weg gerückt
+statt abgewiesen, und **jede** Verschiebung wird berichtet: ein still
+umnummeriertes Flugzeug ist eines, das auf einem Kanal antwortet, den niemand
+erwartet. Die Sendereinstellungen der Datei werden nur verglichen, nicht
+übernommen — welche Buchse welche ist, entscheidet die Installation, in die
+importiert wird.
+
+Beim **Bearbeiten** steht *Übernehmen* auf jeder Seite des Wizards: ein Modell,
+das schon fertig ist, muss zum Speichern nicht erst bis zum letzten Schritt
+durchgeblättert werden. Ein neues schon, denn vorher ist es nicht fertig.
+
+Anlegen, Ändern und Entfernen werden **sofort geschrieben und sofort
+übernommen** — die Bridge baut ihre Kanalzuordnung neu und schickt der
+Bodenstation die neue Port-Einstellung, ohne Neustart. Nur die Bordfirmware
+muss danach noch neu generiert und geflasht werden. Läuft gerade eine Show, wird
+das Speichern abgelehnt; dann steht ein Punkt am Knopf **Speichern**, und die
+Änderung wartet, bis die Wiedergabe steht.
+
+Eingestellt wird nicht hier, sondern im **Wizard** — **＋ Neues Modell** oder
+**Bearbeiten** an einer Karte führen in denselben sechsschrittigen Weg
+(Bauart, Fernsteuerung, Zonen, LED-Ausgänge, Relais, Positionslichter), dessen
+Reiter anklickbar sind. Der erste Schritt fragt zweierlei: **was für ein Modell**
+das ist — Motorflugzeug, Segelflugzeug oder Quadrocopter, was allein die Vorschau
+betrifft — und **worauf der Pico sitzt**: eine
+fertige Platine hat ihre Anschlüsse im Kupfer, also füllt der Wizard die GPIOs
+ein, statt danach zu fragen, und legt die LED-Ausgänge gleich an. Wer frei
+verdrahtet, wählt *Experte* — dann steht wie bisher jeder GPIO zur Wahl. Ein Ort statt zweier, die sich halb überschneiden und
+auseinanderlaufen. Beim Speichern läuft dieselbe Prüfung wie beim Start, Fehler
+kommen im Klartext zurück („GPIO 5 wird von SBUS und LED-Ausgang
 'flaeche_links' benutzt"). Die Vorversion bleibt als `show.yaml.bak` liegen.
 
 > Solange eine Show läuft, ist die Bearbeitung hier **gesperrt**. Das verhindert,
 > dass sich die Zuordnung mitten in einer Show verschiebt.
 
-**Anschluss** — je Modell eine Tabelle, wo was an den Pico im Flieger kommt,
-inklusive **physischer Pinnummer** auf der Platine, dazu der geschätzte
-LED-Strom und die fertige `config.h`. Ein Knopf schreibt sie nach
-`firmware/plane/generated/<modell>.h`.
+**Flashen** — der Weg von der Konfiguration auf die Boards, und sonst nichts.
+Für die Bordfirmware drei nummerierte Schritte je Modell: `config.h` nach
+`firmware/plane/generated/<modell>.h` schreiben, bauen, aufspielen. Darunter die
+Bodenstation, die von Modellen nichts weiß. Dazu die Kommandozeile, die dasselbe
+tut, und die erzeugte `config.h` zum Nachsehen.
 
-**Firmware bauen und aufspielen** — im selben Tab, ohne Terminal. Die UI prüft
+Wo im Rumpf was angeschlossen wird — Tabelle mit **physischer Pinnummer** und
+dem geschätzten LED-Strom — steht bei dem Modell, zu dem es gehört: aufklappbar
+an dessen Karte im Reiter *Modelle*. Das ist eine Eigenschaft des Flugzeugs, die
+sich durch Bauen nicht ändert.
+
+**Firmware bauen und aufspielen** — ohne Terminal. Die UI prüft
 vorher die Toolchain und sagt konkret, was fehlt, statt einen Compiler-Fehler zu
 zeigen. Der Build läuft im Hintergrund, das Log steht live auf der Seite.
 
@@ -203,7 +304,7 @@ firmware/plane/generated/eule.h    → build/plane-eule/lightshow_plane_eule.uf2
 firmware/plane/generated/falke.h   → build/plane-falke/lightshow_plane_falke.uf2
 ```
 
-In der UI wählt die Modellauswahl im Anschluss-Tab, was gebaut und aufgespielt
+In der UI wählt die Modellauswahl im Flashen-Tab, was gebaut und aufgespielt
 wird. Auf der Kommandozeile derselbe Weg mit `--generate <modell>` und
 `-DPLANE_CONFIG=generated/<modell>.h`.
 
@@ -214,7 +315,7 @@ wird. Auf der Kommandozeile derselbe Weg mit `--generate <modell>` und
 > Debug-Konsole, für welches Modell sie gebaut wurde:
 >
 > ```
-> lightshow plane: model=eule zones=1 strips=2 relays=2
+> lightshow plane: model=eule zones=4 outputs=2 segments=2 relays=3
 > ```
 >
 > Danach steht der Modellname in jeder Statuszeile. Wer nicht mehr weiß, was auf
@@ -246,8 +347,9 @@ Vollständige Stückliste, Pinbelegung und Strombudget:
 
 ### Bodenstation
 
-Ein **Raspberry Pi Pico**. Ausgänge auf GPIO2–GPIO9 (Port 0–7), Selbsttest-
-Eingang auf GPIO10, Status-LED onboard.
+Ein **Raspberry Pi Pico**. Acht Ausgänge auf GPIO2–GPIO9 (Buchse 1–8), einer je
+Sender, Status-LED onboard. Sonst nichts — der Selbsttest-Eingang auf GPIO10 ist
+entfallen, nachdem er seine Messung geliefert hatte.
 
 Je Ausgang:
 
@@ -296,65 +398,199 @@ schalten. Schaltbilder in [`hardware/README.md`](hardware/README.md).
 
 ### Ausgänge je Modell konfigurieren
 
-`firmware/plane/src/config.h` beschreibt die Ausgangsstufe als drei Tabellen:
-bis zu **8 WS2812-Strips** und **8 Relais**, gruppiert in **Zonen**. Nur diese
-Datei wird je Modell angefasst.
+`firmware/plane/src/config.h` beschreibt die Ausgangsstufe als vier Tabellen:
+bis zu **8 WS2812-Ketten**, die **Abschnitte**, in die sie zerfallen, bis zu
+**8 Relais** und die Positionslichter. Nur diese Datei wird je Modell angefasst,
+und erzeugt wird sie aus `show.yaml`.
 
 ```c
-#define STRIP_COUNT 2
-#define STRIPS { \
-    /* pin, count, zone, offset, reverse */              \
-    /* linke Fläche, läuft nach außen  */ {2, 30, 0, 0, false}, \
-    /* rechte Fläche, gespiegelt       */ {3, 30, 0, 0, true},  \
+/* Die physischen Ketten: pin, Pixel, Beginn im gemeinsamen Bildpuffer. */
+#define OUTPUT_COUNT 2
+#define OUTPUTS { \
+    {2, 30,  0},  /* flaeche_links  */ \
+    {3, 30, 30},  /* flaeche_rechts */ \
+}
+
+/* Wie die Ketten unter den Zonen aufgeteilt sind. */
+#define SEGMENT_COUNT 3
+#define SEGMENTS { \
+    /* output, ab Pixel, Länge, zone, offset, reverse */ \
+    {0,  0, 15, 0, 0, false},  /* linke Fläche außen  -> Zone 1 */ \
+    {0, 15, 15, 1, 0, false},  /* linke Fläche innen  -> Zone 2 */ \
+    {1,  0, 30, 0, 0, true},   /* rechte Fläche, gespiegelt      */ \
 }
 
 #define RELAY_COUNT 2
 #define RELAYS { \
     /* pin, zone, source, arg, threshold, active_low, min_on, min_off */ \
-    /* Scheinwerfer, MOSFET, blitzt im Takt   */ {6, 0, RELAY_SRC_PIXEL, 0, 64, false,   0,   0}, \
-    /* Rauch, Relaismodul, ab Cue 5           */ {7, 0, RELAY_SRC_CUE,   5,  0, true,  200, 200}, \
+    /* pin, active_low, min_on_ms, min_off_ms -- Position ist das Bit */ \
+    /* Bit 0: Rauch, Relaismodul  */ {7,  true, 200, 200}, \
+    /* Bit 1: Blitz, MOSFET       */ {8, false,   0,   0}, \
 }
 ```
 
-**Zonen** bündeln Ausgänge, die denselben Effekt zeigen. Eine Zone belegt vier
-RC-Kanäle. Zwei Zonen heißen: Flächen und Rumpf laufen unabhängig, kosten aber
-acht Kanäle.
+**Ausgang und Zone sind getrennt.** Ein Ausgang ist ein GPIO, eine
+PIO-Zustandsmaschine und eine Länge — das, was gelötet wird. Ein Abschnitt ist
+ein Stück davon und gehört zu genau einer Zone. Damit kann ein einziger 60er
+Streifen vorn Rumpf und hinten Leitwerk sein, ohne zweimal angeschlossen zu
+werden. Vorher war beides dieselbe Tabelle, und eine Lötentscheidung bestimmte
+eine Lichtentscheidung mit.
 
-**`offset`** bestimmt, wie Strips zusammenspielen: gleicher Offset spiegelt sie,
-fortlaufende Offsets machen aus mehreren Strips eine lange virtuelle Kette, über
+**Zonen** bündeln Abschnitte, die denselben Effekt zeigen. Kanäle kosten sie
+nicht: acht codierte Kanäle tragen bis zu acht Zonen, siehe
+[`docs/bus-modus.md`](docs/bus-modus.md). Was mehr Zonen kosten, ist Wartezeit.
+
+**`offset`** bestimmt, wie Abschnitte zusammenspielen: gleicher Offset spiegelt
+sie, fortlaufende Offsets machen aus mehreren eine lange virtuelle Kette, über
 die ein Lauflicht durchläuft. **`reverse`** dreht einen verkehrt herum
-eingebauten Strip um, damit ein Lauflicht auf beiden Flächen wirklich nach außen
-läuft.
+eingebauten Abschnitt um, damit ein Lauflicht auf beiden Flächen wirklich nach
+außen läuft.
 
-**Relais-Quellen** — was ein Relais schalten lässt:
+**Ein Relais wird über den Bus geschaltet und sonst gar nicht.** Es bekommt ein
+eigenes Bit im Rahmen, das in *jedem* Rahmen mitfährt, und einen eigenen
+Control-Change: ab 64 an, darunter aus. Es hängt an keiner Zone und folgt keinem
+Effekt.
 
-| Quelle                 | Verhalten                                              |
-|------------------------|--------------------------------------------------------|
-| `RELAY_SRC_PIXEL`      | folgt einem Pixel der Zone, blitzt exakt mit dem Effekt |
-| `RELAY_SRC_BRIGHTNESS` | an, solange der Master-Dimmer über der Schwelle liegt   |
-| `RELAY_SRC_CUE`        | an ab Cue `arg`                                        |
-| `RELAY_SRC_CHANNEL`    | an über einen eigenen RC-Kanal                         |
+Früher konnte ein Relais seinen Zustand stattdessen an Bord ableiten — aus einem
+Pixel, dem Master-Dimmer, einer Cue-Nummer oder einem rohen RC-Kanal. Das kostete
+keine Nutzbits, band aber jedes Relais an etwas anderes, das gerade lief, und
+zwei Wege bedeuteten für jede Regel über Relais zwei Antworten. Ein Weg, eine
+Antwort.
 
-Nur `RELAY_SRC_CHANNEL` kostet einen zusätzlichen Kanal; die anderen drei werden
-aus der Effekt-Engine abgeleitet. Cue 0 schaltet immer alle Relais ab.
+Was das kostet: Adressbits und Relaisbits teilen sich vier Bit. Vier Zonen
+brauchen zwei Adressbits und lassen damit **zwei** Relais zu, fünf bis acht Zonen
+nur noch eines. Ein Relais, das exakt im Takt eines Strobes blitzt, geht nicht
+mehr — ein Bit ist ein Zustand, kein Muster.
 
-`min_on_ms` / `min_off_ms` erlauben den Mischbetrieb: **0** für MOSFETs, die
-jedem Blitzmuster folgen, **~200** für mechanische Relais — die hängen dann am
-selben Effekt, schalten aber nur so oft, wie sie es überleben.
+`min_on_ms` / `min_off_ms` erlauben den Mischbetrieb: **0** für MOSFETs, **~200**
+für mechanische Relais, die dann nur so oft schalten, wie sie es überleben. Bei
+Funkausfall fallen alle Relais sofort ab, ohne Rücksicht auf diese Zeiten.
 
 ---
 
 ## Installation
 
-### Bridge
+### Bridge als AppImage
 
-Ubuntu 24.04 ist PEP-668-verwaltet, deshalb zwingend ein venv:
+Der normale Weg. Eine Datei, kein Python, keine Pakete:
+
+```bash
+sudo apt install libfuse2t64                   # einmalig, Ubuntu 24.04 hat es nicht mehr
+chmod +x Lightshow-x86_64.AppImage
+./Lightshow-x86_64.AppImage                    # startet und öffnet den Browser
+./Lightshow-x86_64.AppImage --install-desktop  # Eintrag im Anwendungsmenü
+```
+
+**Keine Leerzeichen im Dateinamen.** AppImageLauncher schreibt den Pfad
+unquotiert in das `TryExec` des Menüeintrags, den er anlegt; mit einem
+Leerzeichen darin zeigt die Arbeitsfläche den Eintrag gar nicht erst an.
+
+**Es kommt leer.** Keine Modelle, keine Projekte, acht freie Senderbuchsen —
+die Beispielshow aus `host/config/show.yaml` bleibt im Quellbaum. Der erste
+Weg führt also über *Modelle → ＋ Neues Modell*: der Assistent fragt Bauart,
+Fernsteuerung, Zonen, LED-Ausgänge und Relais ab und schaltet dabei die
+Senderbuchse an, die das Modell benutzt. Erst danach lässt sich ein Projekt
+anlegen — ein Projekt ohne Modell hätte nichts zu steuern.
+
+Ein AppImage bringt seinen Python mit, aber keine Sandbox — und genau das
+braucht die Bridge: `/dev/ttyACM*` für die Bodenstation, die Soundkarte für
+die Musik, den USB-Stick der Pico im BOOTSEL-Modus. Vom System kommt, wenn du
+aus der UI heraus Firmware
+bauen willst, die [Firmware-Toolchain](#firmware-toolchain) — eine halbe
+Gigabyte Cross-Compiler reist in keinem Image mit. Der Flashen-Tab sagt dir,
+was fehlt.
+
+In der Gruppe `dialout` musst du sein, sonst bleibt der Port zu:
+
+```bash
+sudo usermod -aG dialout $USER     # danach einmal neu anmelden
+```
+
+Ist **AppImageLauncher** installiert, fragt der erste Start stattdessen, ob er
+das Image ins System aufnehmen soll — dann macht er den Menüeintrag selbst und
+`--install-desktop` erübrigt sich.
+
+Falls der Doppelklick nichts tut, fehlt FUSE: `sudo apt install libfuse2t64`.
+
+### Wo liegen meine Daten
+
+Ein AppImage ist innen schreibgeschützt, die Bridge schreibt aber ständig:
+Projekte, geänderte Konfiguration, gebaute Firmware. Beim ersten Start legt sie
+deshalb einen Arbeitsbaum an, der genauso aussieht wie das Repository:
+
+```
+~/.local/share/lightshow/
+  config/show.yaml   deine Konfiguration — beim ersten Start kopiert, danach deine
+  projects/          deine Shows samt Audio
+  firmware/          Quellen aus dem Image, bei einer neuen Version erneuert
+  tools/             dito
+  build/             gebaute Firmware
+~/.local/state/lightshow/bridge.log      Ausgabe der Läufe, bei 5 MB als .1 weggerollt
+```
+
+Ein Update erneuert nur `firmware/` und `tools/`. `projects/`, `config/show.yaml`
+und die generierten Header bleiben, wie sie sind. Zum Sichern reicht
+`projects/` und `config/show.yaml`. Ein anderer Ort geht mit `LIGHTSHOW_ROOT`.
+
+### Bridge aus dem Quellbaum
+
+Zum Entwickeln. Ubuntu 24.04 ist PEP-668-verwaltet, deshalb zwingend ein venv:
 
 ```bash
 cd host
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt pytest
 ```
+
+So gestartet bleibt alles im Checkout — Konfiguration, `projects/`, `build/` —
+genau wie bisher. Der Arbeitsbaum oben entsteht nur unter dem AppImage.
+
+### AppImage selbst bauen
+
+```bash
+sudo apt install squashfs-tools
+./packaging/appimage/build.sh          # -> dist/Lightshow-x86_64.AppImage
+```
+
+Das Skript lädt ein Python-Basisimage und die AppImage-Runtime, installiert
+`host/` samt Abhängigkeiten hinein und legt `firmware/`, `tools/` und
+`packaging/appimage/show.yaml` als Vorlage für den Arbeitsbaum dazu — die
+leere Startkonfiguration, nicht die Beispielshow. Zum Schluss packt es das
+fertige Image noch einmal aus und startet es mit eigenem `HOME`: läuft es nicht
+oder bringt es Modelle mit, bricht der Bau ab.
+
+**Bei jedem Release baut GitHub es selbst.** `.github/workflows/appimage.yml`
+lässt erst die Testsuite laufen und hängt das Ergebnis dann an das
+veröffentlichte Release. Der Workflow ruft dasselbe `build.sh` auf und
+installiert nur, was Ubuntu dafür fehlt:
+
+| Job | Pakete |
+|---|---|
+| Tests | `libasound2t64 build-essential nodejs` |
+| AppImage | `squashfs-tools desktop-file-utils` |
+
+`build-essential` ist keine Zier: ohne `make` überspringen die Kreuzprüfungen
+126 Tests, ohne sich zu beschweren. Drei Tests bleiben auf einem Runner
+übersprungen, weil er kein Audiogerät hat — `-rs` in der Testzeile macht das
+sichtbar, damit eine vierte Übersprungene auffällt.
+
+**An Runtime und Kompressor nichts drehen.** Beides ist mühsam erarbeitet, weil
+auf Rechnern mit **AppImageLauncher** jeder Start über `binfmt_misc` durch ihn
+hindurchgeht — und der ist auf Ubuntu 24.04 ein Paket von 2020:
+
+| | liest | unter AppImageLauncher |
+|---|---|---|
+| Runtime aus `type2-runtime` | zlib, zstd | **nein** — `fuse: memory allocation failed` |
+| Runtime aus `AppImageKit` | lzma, zlib | ja |
+| libappimage 1.0.3 des Launchers | xz, zlib | — |
+| `mksquashfs` in `appimagetool` | nur zstd | — |
+
+Übrig bleibt genau eine Kombination: die **AppImageKit-Runtime** mit einem
+**zlib**-Datenteil, gepackt vom `mksquashfs` des Systems. Ein zstd-Image bricht
+schon vor dem Start mit *Fehler beim Registrieren des AppImages im System* ab,
+ein xz-Image mountet nicht. Der Preis für die ältere Runtime ist `libfuse2t64`,
+das sie per `dlopen` nachlädt; zlib ist obendrein das, was am schnellsten
+mountet.
 
 ### Firmware-Toolchain
 
@@ -408,8 +644,6 @@ Ein anderer Sender heißt: eine Zeile ändern. Kein Neuflashen, kein Umlöten.
 ```yaml
 serial_port: /dev/ttyACM0
 rate_hz: 100
-midi_port_name: lightshow
-blackout_cc: 119        # CC >= 64 schaltet sofort alles auf Failsafe
 global_offset_ms: 0     # Licht verzögern; negativ geht nicht
 
 tx_ports:
@@ -425,7 +659,6 @@ tx_ports:
 
 models:
   - name: eule
-    midi_channel: 1     # so wie Ardour ihn anzeigt, 1..16
     tx_port: 0
     tx_offset: 0        # erster belegter Kanal des Ports
     channels:
@@ -452,11 +685,18 @@ Sender: [`docs/sender-setup.md`](docs/sender-setup.md).
 ## Show-Editor
 
 Im Tab **Show**: oben die Audiospuren, darunter je Modell eine Lichtspur.
+Gespeichert wird dort von selbst — jede Änderung steht binnen einer Sekunde auf
+der Platte. Übrig sind der Projektname und **Schließen**, das die Show aus der
+Hand legt und die Lichter in den Ruhezustand schickt. Geöffnet, angelegt und
+bearbeitet werden Projekte im Tab **Projekte**; bearbeiten geht an jeder Karte,
+auch an einer, die gerade nicht offen ist.
 Ausführlich in [`docs/show-editor.md`](docs/show-editor.md).
 
-1. Projektnamen eingeben, **Anlegen**. Es entsteht `projects/<name>/` mit zwei
-   Audiospuren und einer Lichtspur je Modell und Zone — benannt nach dem Modell,
-   nicht nach CC-Nummern.
+1. Im Reiter **Projekte**: **＋ Neues Projekt** — Name, dann die Flugzeuge, die
+   dabei fliegen. Es entsteht `projects/<name>/` mit zwei Audiospuren, je
+   gewählter Zone einer Lichtspur und je Bus-Relais einer Relaisspur, benannt
+   nach dem Modell und nicht nach CC-Nummern. Eingerichtet werden die Modelle
+   vorher unter **Modelle**.
 2. Musik auf eine Audiospur ziehen. Die Datei wird ins Projekt kopiert, damit
    der Ordner für sich allein lauffähig bleibt. WAV, FLAC, OGG und MP3.
 3. **＋ Effekt** setzt einen Block am Abspielkopf auf die Lichtspur: Effekt,
@@ -490,13 +730,6 @@ Ausgabelatenz korrigiert, damit sie zu dem passt, was hörbar ist.
 **Ohne Audiogerät läuft die Uhr trotzdem**, sodass sich eine Show auch auf einem
 Rechner ohne Audio vollständig prüfen lässt.
 
-### MIDI bleibt möglich
-
-Der virtuelle MIDI-Port existiert weiter. Läuft kein Transport, kommen die Werte
-von dort — für schnelle Versuche im Hangar oder eine bestehende Ardour-Session
-([`docs/ardour-setup.md`](docs/ardour-setup.md)). Startet die Wiedergabe,
-übernimmt die Timeline; nach dem Stoppen wieder MIDI. Ohne Umschalter.
-
 ---
 
 ## Inbetriebnahme in fünf Stufen
@@ -516,7 +749,7 @@ Failsafe-Positionen, `link: dry-run`.
 Dann im Tab **Show** ein Projekt anlegen, einen Effekt-Block setzen und die
 Wiedergabe starten. Die Balken müssen den Blöcken folgen, `b` schaltet Blackout.
 
-*Damit belegt:* MIDI-Routing, Mapping, Quantisierung, Fades. Kostet nichts.
+*Damit belegt:* Editor, Zeitleiste, Quantisierung, Fades. Kostet nichts.
 
 ### Stufe 2 — Pico allein
 
@@ -539,14 +772,17 @@ Portkonfiguration.
 
 *Damit belegt:* USB-Verbindung, Framing, CRC, Portkonfiguration.
 
-### Stufe 3 — Signal gegenprüfen, ohne Oszilloskop
+### Stufe 3 — Signal gegenprüfen
 
-**Ein Jumperkabel von GPIO2 nach GPIO10.** Die Firmware misst ihr eigenes
-Ausgangssignal und meldet einmal pro Sekunde:
+Dafür gab es einmal einen Selbsttest-Eingang auf GPIO10: ein Jumper von GPIO2
+dorthin, und die Firmware maß ihr eigenes Ausgangssignal. Er hat am 17.08.2026
+seine Zahl geliefert — **0 µs Eigenfehler** — und ist danach entfernt worden.
+Ein Messeingang, der einmal gebraucht wird und dann nur noch Pin und Code
+belegt, kostet mehr als er trägt.
 
-```
-SELFTEST ppm idle=low (normal) mark=400us frame=22500us nch=8 [1000 1500 1000 1500 ...]
-```
+Wer das Signal heute prüfen will, hängt einen Logikanalysator oder ein
+Oszilloskop an GPIO2. Das Protokoll der damaligen Messung samt Ergebnissen steht
+in [`docs/funkstrecke-messen.md`](docs/funkstrecke-messen.md).
 
 *Zu prüfen:*
 
@@ -563,8 +799,8 @@ Stufe, die sonst ein Oszilloskop bräuchte.
 Klinke an die Trainer-Buchse, Tip auf GPIO2 über 1 kΩ, Sleeve auf GND, **Ring
 offen**. Im Sender den Trainer-Eingang auf Master/Jack mit PPM stellen.
 
-*Erwartet:* Im Kanalmonitor des Senders bewegen sich die Trainer-Kanäle mit der
-Ardour-Automation.
+*Erwartet:* Im Kanalmonitor des Senders bewegen sich die Trainer-Kanäle mit den
+Blöcken der Zeitleiste.
 
 Trainer-Kanäle jetzt **ausschließlich auf die Lichtkanäle** mischen.
 
@@ -579,8 +815,8 @@ noch nicht angeschlossen. Ein falsch gesetztes `active_low` schaltet sonst beim
 Einschalten sofort durch, und bei einem Rauchsystem oder einem Scheinwerfer auf
 der Werkbank ist das kein guter Moment, das zu merken.
 
-*Erwartet:* Positionslichter leuchten sofort und dauerhaft. Cue-Wechsel in
-Ardour ändern den Effekt, `brightness` dimmt weich. Relais schalten gemäß ihrer
+*Erwartet:* Positionslichter leuchten sofort und dauerhaft. Ein Blockwechsel
+auf der Zeitleiste ändert den Effekt, `brightness` dimmt weich. Relais schalten gemäß ihrer
 Quelle; bei Cue 0 fallen alle ab.
 
 *Failsafe prüfen:* Sender ausschalten. Nach 500 ms muss das Modell auf langsames
@@ -609,7 +845,7 @@ sie gegen die Python-Seite. Driftet eine Seite weg, schlägt der Test fehl.
 |------------------------|--------------------------------------------------------------|
 | `test_protocol.py`     | CRC gegen Referenzvektor, Frame-Layout                        |
 | `test_config.py`       | Konfigurationsprüfung: Überlappungen, doppelte CCs, Grenzen   |
-| `test_mapping.py`      | MIDI → Mikrosekunden, 14 Bit, Invertierung, Blackout, Panic   |
+| `test_mapping.py`      | Ruhezustand, Blackout, Kanalblöcke je Modell                  |
 | `test_cross_check.py`  | C-Parser gegen Python-Encoder: CRC, Byte-Reihenfolge, Resync  |
 | `test_ppm_frame.py`    | PPM-Timing aus dem echten Frame-Builder rekonstruiert         |
 | `test_relay_logic.py`  | Relais-Quellen und Mindestschaltzeiten der Bordfirmware       |
@@ -667,12 +903,10 @@ trägt. Vollständig in
 
 | Was                     | Wie                                                        |
 |-------------------------|------------------------------------------------------------|
-| MIDI kommt an           | `aconnect -l \| grep lightshow`, dann `aseqdump -p lightshow` |
-| Mapping stimmt          | `python -m lightshow --dry-run`                            |
+| Ausgabe stimmt          | `python -m lightshow --dry-run`                            |
 | Konfiguration gültig    | `python -m lightshow --check`                              |
 | UI erreichbar           | Bridge starten, `http://127.0.0.1:8765/` öffnen            |
-| Bauen aus der UI        | Anschluss-Tab → „Bordfirmware bauen“, Log muss durchlaufen |
-| PPM-Signal korrekt      | Jumper GPIO2 → GPIO10, `SELFTEST`-Zeile lesen              |
+| Bauen aus der UI        | Flashen-Tab → „2 · Bauen“, Log muss durchlaufen            |
 | Failsafe Bodenstation   | USB im Betrieb abziehen → Ausgänge binnen 250 ms auf Failsafe |
 | Failsafe Modell         | Sender ausschalten → nach 500 ms bernsteinfarbenes Pulsen, alle Relais fallen ab |
 | Relais am Boden prüfen  | Cue auf 0 stellen → jedes Relais muss abfallen             |
@@ -681,16 +915,36 @@ trägt. Vollständig in
 
 ## Fehlersuche
 
-**Der MIDI-Port taucht in Ardour nicht auf.** Die Bridge muss laufen, bevor du
-in Ardour verbindest — der Port existiert nur, solange sie läuft. Prüfen mit
-`aconnect -l | grep lightshow`.
-
-**Alle Tracks steuern dasselbe Modell.** Der ausgehende MIDI-Kanal ist am Track
-nicht erzwungen, alles geht auf Kanal 1.
-
 **`link: DOWN` in der TUI.** Gerätepfad prüfen (`ls /dev/ttyACM*`) und ob du in
-der Gruppe `dialout` bist (`groups`). Die Bridge verbindet sich selbständig neu,
-sobald das Gerät wieder da ist.
+der Gruppe `dialout` bist (`groups`) — fehlt die Gruppe, schreibt die Bridge das
+inzwischen ausdrücklich hin statt nur `DOWN` zu zeigen. Sie verbindet sich
+selbständig neu, sobald das Gerät wieder da ist.
+
+**Das AppImage startet nicht.** Läuft es überhaupt, steht der Grund im Log:
+`~/.local/state/lightshow/bridge.log`. Gibt es das Log gar nicht, ist es nie so
+weit gekommen — dann von Hand starten, dort steht die Meldung:
+
+```bash
+./Lightshow-x86_64.AppImage --check
+```
+
+*Cannot mount AppImage* oder *fuse: memory allocation failed* heißt: `sudo apt
+install libfuse2t64`, und falls selbst gebaut, die falsche Runtime — siehe
+[AppImage selbst bauen](#appimage-selbst-bauen).
+
+**Es öffnet sich ein Browser-Tab statt eines eigenen Fensters.** Dann ist kein
+Browser der Chromium-Familie installiert. Einen nachrüsten (Brave, Chromium,
+Chrome, Edge, Vivaldi — als Paket, Snap oder Flatpak) oder mit
+`LIGHTSHOW_BROWSER=…` auf einen zeigen, den die Suche nicht kennt.
+
+**Der Menüeintrag tut nichts.** Hat der Dateiname ein Leerzeichen? Dann steht
+im `TryExec`, das AppImageLauncher schreibt, ein abgeschnittener Pfad. Image
+ohne Leerzeichen benennen und neu integrieren.
+
+**„Fehler beim Registrieren des AppImages im System".** Das kommt von
+AppImageLauncher und heißt: seine libappimage kann den Datenteil nicht lesen.
+Selbst gebaut? Dann steht der Kompressor auf zstd statt zlib — siehe
+[AppImage selbst bauen](#appimage-selbst-bauen).
 
 **`crc_err` zählt hoch.** Kabel oder USB-Port wechseln. Die Frames werden
 verworfen, nicht falsch interpretiert.
@@ -702,9 +956,6 @@ verworfen, nicht falsch interpretiert.
 3. `sync_us: 300` probieren
 4. 74HCT14 als 5-V-Puffer einschleifen
 5. Masseverbindung prüfen — der häufigste Fehler
-
-**Cue springt zwischen zwei Effekten.** In Ardour eine Rampe statt einer Stufe
-gezeichnet. `cue` verträgt keine Zwischenwerte.
 
 **LEDs flackern oder zeigen falsche Farben.** Pegelwandler fehlt oder die
 Stromversorgung bricht ein. Nicht am Empfänger-BEC betreiben.
@@ -738,13 +989,15 @@ USB-Isolator zwischen PC und Pico.
 
 | Pfad              | Inhalt                                                     |
 |-------------------|------------------------------------------------------------|
-| `host/lightshow/` | Bridge: `config`, `mapping`, `midi`, `link`, `monitor`, `webui`, `planegen` |
+| `host/lightshow/` | Bridge: `config`, `timeline`, `mapping`, `link`, `monitor`, `webui`, `planegen`, `paths`, `appwindow` |
 | `host/lightshow/web/` | Oberfläche: `index.html`, `app.css`, `app.js`, `effects.js` — ohne Bundler |
 | `host/tests/`     | Testsuite, inklusive der Kreuzprüfungen gegen die Firmware  |
 | `firmware/pico/`  | Bodenstation: PPM/SBUS über PIO und DMA, Selbsttest         |
 | `firmware/plane/` | Bordcontroller: RC-Eingang, Effekt-Engine, Strips, Relais   |
 | `tools/ctest/`    | Firmware-Logik nativ kompiliert, für die Tests              |
-| `docs/`           | Ardour-Setup, Sender-Setup, Cue-Liste, Funkstreckenmessung   |
+| `packaging/appimage/` | Startskript, Menüeintrag, Icon, leere Startkonfiguration und Bauskript des AppImage |
+| `.github/workflows/` | Tests und AppImage-Bau bei jedem Release |
+| `docs/`           | Show-Editor, Sender-Setup, Cue-Liste, Funkstreckenmessung    |
 | `hardware/`       | Pinbelegung, Pegel, Stückliste, Strombudget                 |
 
 Drei Header sind bewusst frei von SDK-Abhängigkeiten, damit ihre Rechnungen auf

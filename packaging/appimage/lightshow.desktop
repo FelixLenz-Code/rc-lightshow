@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Lightshow Bridge
+GenericName=Modellflug-Lichtshow
+Comment=Spielt Lichtshows fuer Modellflugzeuge und steuert die Bodenstation
+Exec=lightshow
+Icon=lightshow
+Terminal=false
+Categories=AudioVideo;
+Keywords=MIDI;Ardour;RC;Modellflug;Lichtshow;
+StartupNotify=true
+StartupWMClass=Lightshow

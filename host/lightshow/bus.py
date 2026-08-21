@@ -310,7 +310,7 @@ class ZoneState:
     @classmethod
     def from_bytes(cls, cue: int, hue: int, brightness: int, param: int
                    ) -> "ZoneState":
-        """From what MIDI produces -- cue as a step, the rest 0..255."""
+        """Cue as a step index, the rest 0..255."""
         widths = dict(ZONE_FIELDS)
         return cls(
             cue=max(0, min((1 << widths["cue"]) - 1, cue)),
@@ -467,7 +467,7 @@ def us_to_level(microseconds: int, min_us: int, max_us: int) -> int:
 class Encoder:
     """Holds a bus model's logical state and hands out the eight wire values.
 
-    Three places produce frames -- the MIDI mapper, the project timeline and
+    Three places produce frames -- the resting mapper, the project timeline and
     the session's failsafe -- and all three used to write straight into channel
     positions. In bus mode there are no channel positions to write into, so all
     three feed an encoder instead and it decides what goes on the wire.

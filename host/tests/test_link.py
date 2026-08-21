@@ -41,8 +41,8 @@ class FakeSerial:
 def wire_ports():
     show = ShowCfg(
         ports=[PortCfg(id=0, name="tx", nchan=8)],
-        models=[ModelCfg("eule", 1, 0, channels=[
-            ChannelCfg(role="cue", cc=20, quantize=32, failsafe=1000),
+        models=[ModelCfg("eule", 0, channels=[
+            ChannelCfg(role="cue", quantize=32, failsafe=1000),
         ])],
     )
     return show.wire_ports()
@@ -110,3 +110,26 @@ def test_a_dry_run_link_never_touches_the_device(monkeypatch, wire_ports):
     connection.poll()
     assert connection.send(1, [[1000] * 8]) is True
     assert FakeSerial.opened == 0
+
+
+def test_a_closed_port_says_how_to_open_it(monkeypatch, wire_ports):
+    """`link: DOWN` alone has sent people looking for a broken cable.
+
+    A port that exists but refuses to open means the user is not in `dialout`,
+    and that is one command away -- so the link says which one.
+    """
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Permission denied: '/dev/fake'")
+
+    monkeypatch.setattr(link_module, "serial",
+                        types.SimpleNamespace(Serial=refuse, SerialException=OSError))
+    connection = link_module.PicoLink("/dev/fake", wire_ports)
+    connection.poll()
+
+    assert not connection.connected
+    assert "dialout" in connection.last_error
+    assert "/dev/fake" in connection.last_error
+
+
+def test_other_failures_are_passed_through_unchanged():
+    assert link_module.open_error("/dev/fake", OSError("no such device")) == "no such device"

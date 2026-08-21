@@ -96,7 +96,20 @@ def test_toolchain_reports_a_missing_sdk(monkeypatch, tmp_path):
     status = flasher.toolchain_status()
     assert not status["ok"]
     assert any("PICO_SDK_PATH" in item for item in status["missing"])
-    assert "apt install" in status["hint"]
+    assert "export PICO_SDK_PATH" in status["hint"]
+
+
+def test_the_hint_names_only_what_is_missing(monkeypatch, tmp_path):
+    """Out of an AppImage this text is the entire installation instruction, so
+    it must not send anyone after packages they already have."""
+    (tmp_path / "external").mkdir()
+    (tmp_path / "external" / "pico_sdk_import.cmake").write_text("")
+    monkeypatch.setenv("PICO_SDK_PATH", str(tmp_path))
+    monkeypatch.setattr(flasher.shutil, "which",
+                        lambda name: None if name == "cmake" else "/usr/bin/" + name)
+
+    hint = flasher.toolchain_status()["hint"]
+    assert hint == "sudo apt install cmake"
 
 
 def test_toolchain_accepts_a_real_sdk_layout(monkeypatch, tmp_path):

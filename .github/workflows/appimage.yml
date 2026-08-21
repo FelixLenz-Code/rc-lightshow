@@ -1,0 +1,85 @@
+# Baut das AppImage und haengt es an jedes veroeffentlichte Release.
+#
+# Der eigentliche Bau steht in packaging/appimage/build.sh und laeuft dort
+# genauso wie hier -- dieser Workflow installiert nur die Systempakete und
+# reicht das Ergebnis weiter. Was das Image an Runtime und Kompressor braucht
+# und warum, steht im Skript.
+
+name: AppImage
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:          # zum Ausprobieren ohne Release
+  push:
+    paths:                    # damit ein Fehler am Bau nicht erst beim Release auffaellt
+      - 'packaging/appimage/**'
+      - '.github/workflows/appimage.yml'
+
+permissions:
+  contents: write             # zum Anhaengen an das Release
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # python-rtmidi laedt libasound, soundfile bringt libsndfile selbst mit,
+      # der Rest kommt als manylinux-Wheel. build-essential und node sind fuer
+      # die Kreuzpruefungen da: die kompilieren die Firmware-Logik nativ und
+      # lassen die Effekt-Engine in JavaScript daneben laufen. Ohne make
+      # ueberspringt die Suite 126 Tests, ohne zu klagen.
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2t64 build-essential nodejs
+
+      - name: Abhaengigkeiten
+        run: pip install -r host/requirements.txt pytest
+
+      # -rs zeigt, was uebersprungen wurde: ohne Audiogeraet sind das drei
+      # Tests, alles darueber hinaus heisst, dem Runner fehlt etwas.
+      - name: Tests
+        working-directory: host
+        run: python -m pytest tests -q -rs
+
+  build:
+    name: AppImage
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # die Version kommt aus git describe
+
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            squashfs-tools desktop-file-utils
+
+      # Das Skript packt selbst aus, installiert host/ hinein, packt zusammen
+      # und macht am Ende einen Probelauf des fertigen Images.
+      - name: Bauen
+        run: ./packaging/appimage/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lightshow-x86_64.AppImage
+          path: dist/Lightshow-x86_64.AppImage
+          if-no-files-found: error
+
+      - name: An das Release haengen
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            dist/Lightshow-x86_64.AppImage --clobber

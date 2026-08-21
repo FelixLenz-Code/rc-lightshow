@@ -15,17 +15,17 @@ from lightshow import timeline as timeline_module
 from lightshow.config import ChannelCfg, ModelCfg, PortCfg, ShowCfg
 
 CHANNELS = [
-    ChannelCfg(role="cue", cc=20, quantize=32, failsafe=1000),
-    ChannelCfg(role="hue", cc=21, failsafe=1500),
-    ChannelCfg(role="brightness", cc=22, failsafe=1000),
-    ChannelCfg(role="param", cc=23, failsafe=1500),
+    ChannelCfg(role="cue", quantize=32, failsafe=1000),
+    ChannelCfg(role="hue", failsafe=1500),
+    ChannelCfg(role="brightness", failsafe=1000),
+    ChannelCfg(role="param", failsafe=1500),
 ]
 
 
 def make_show(zones: int = 1, offset: int = 0) -> ShowCfg:
     return ShowCfg(
         ports=[PortCfg(id=0, name="tx", nchan=8)],
-        models=[ModelCfg("eule", 1, 0, tx_offset=offset,
+        models=[ModelCfg("eule", 0, tx_offset=offset,
                          channels=[ChannelCfg(**vars(c)) for c in CHANNELS] * zones)],
     )
 
@@ -39,6 +39,20 @@ def make_project(blocks: list[dict], model: str = "eule", zone: int = 0):
 
 def timeline(show, project):
     return timeline_module.Timeline(show, project)
+
+
+def zone(line, t: float, index: int = 0, model: str = "eule") -> dict:
+    """What the timeline put into a zone at time `t`, in the fields it travels.
+
+    The wire carries one zone per frame and rotates on the clock, so reading a
+    channel back would ask which zone happened to be in flight. The encoder's
+    stored state is the whole picture, and it is what the aircraft holds.
+
+    cue is a step; hue, brightness and param come back as 0..255, coarsened to
+    the width each one actually gets on air -- 6, 8 and 5 bits.
+    """
+    line.frame(t)
+    return line.encoders[model].states[index].to_bytes()
 
 
 # --------------------------------------------------------------------- fades
@@ -79,23 +93,23 @@ def test_a_block_shorter_than_its_fades_is_rejected():
 
 
 def test_nothing_scheduled_means_failsafe():
+    """Cue 0 is "everything off", and that is what an empty zone holds."""
     show = make_show()
     line = timeline(show, make_project([]))
-    assert line.frame(5.0)[0][:4] == [1000, 1500, 1000, 1500]
+    assert zone(line, 5.0) == {"cue": 0, "hue": 0, "brightness": 0, "param": 0}
 
 
-def test_a_block_drives_all_four_channels():
+def test_a_block_drives_all_four_values():
     show = make_show()
     line = timeline(show, make_project([
         {"start_s": 0, "duration_s": 10, "cue": 3, "hue": 255,
          "brightness": 255, "param": 0},
     ]))
-    frame = line.frame(5.0)[0]
-    # cue 3 of 32 steps sits in the middle of its band
-    assert frame[0] == 1000 + round(1000 * 3.5 / 32)
-    assert frame[1] == 2000      # hue at maximum
-    assert frame[2] == 2000      # brightness at maximum
-    assert frame[3] == 1000      # param at minimum
+    state = zone(line, 5.0)
+    assert state["cue"] == 3
+    assert state["hue"] == 255           # at maximum
+    assert state["brightness"] == 255    # at maximum
+    assert state["param"] == 0           # at minimum
 
 
 def test_brightness_follows_the_fade():
@@ -103,11 +117,11 @@ def test_brightness_follows_the_fade():
     line = timeline(show, make_project([
         {"start_s": 0, "duration_s": 10, "cue": 1, "brightness": 255, "fade_in_s": 4},
     ]))
-    assert line.frame(0.0)[0][2] == 1000                    # dark at the start
-    assert line.frame(2.0)[0][2] == pytest.approx(1500, abs=3)   # half way up
-    assert line.frame(4.0)[0][2] == 2000                    # full
+    assert zone(line, 0.0)["brightness"] == 0               # dark at the start
+    assert zone(line, 2.0)["brightness"] == pytest.approx(128, abs=2)  # half way
+    assert zone(line, 4.0)["brightness"] == 255             # full
     # and monotonic in between, no steps backwards
-    levels = [line.frame(t / 10)[0][2] for t in range(0, 41)]
+    levels = [zone(line, t / 10)["brightness"] for t in range(0, 41)]
     assert levels == sorted(levels)
 
 
@@ -116,7 +130,7 @@ def test_cue_zero_keeps_everything_at_failsafe():
     line = timeline(show, make_project([
         {"start_s": 0, "duration_s": 5, "cue": 0, "brightness": 255},
     ]))
-    assert line.frame(2.0)[0][:4] == [1000, 1500, 1000, 1500]
+    assert zone(line, 2.0) == {"cue": 0, "hue": 0, "brightness": 0, "param": 0}
 
 
 def test_gaps_between_blocks_fall_back_to_failsafe():
@@ -125,24 +139,29 @@ def test_gaps_between_blocks_fall_back_to_failsafe():
         {"start_s": 0, "duration_s": 2, "cue": 1, "brightness": 255},
         {"start_s": 6, "duration_s": 2, "cue": 2, "brightness": 255},
     ]))
-    assert line.frame(1.0)[0][2] == 2000
-    assert line.frame(4.0)[0][2] == 1000        # the gap
-    assert line.frame(7.0)[0][2] == 2000
+    assert zone(line, 1.0)["brightness"] == 255
+    assert zone(line, 4.0)["brightness"] == 0        # the gap
+    assert zone(line, 7.0)["brightness"] == 255
 
 
 def test_a_models_channel_offset_is_respected():
-    """A model at tx_offset 4 must write channels 5..8, not 1..4."""
-    show = make_show(offset=4)
-    show.ports[0].nchan = 8
+    """A model at tx_offset 8 must write channels 9..16, not 1..8."""
+    show = make_show(offset=8)
+    show.ports[0].nchan = 16
+    show.ports[0].frame_us = 35500
     line = timeline(show, make_project([
         {"start_s": 0, "duration_s": 5, "cue": 1, "brightness": 255},
     ]))
     frame = line.frame(1.0)[0]
-    assert frame[6] == 2000                      # brightness of the second block
-    assert frame[2] == 1000                      # first block untouched
+    # The coded block sits in the model's own eight channels; the sticks below
+    # it are never written and keep the port minimum.
+    assert set(frame[:8]) == {show.ports[0].min_us}
+    assert frame[8:] != [show.ports[0].min_us] * 8
 
 
-def test_a_second_zone_writes_the_next_four_channels():
+def test_a_second_zone_keeps_its_own_state():
+    """Two zones, one eight channel block -- they take turns, they do not
+    take four channels each."""
     show = make_show(zones=2)
     project = project_module.from_dict({
         "name": "test",
@@ -153,9 +172,10 @@ def test_a_second_zone_writes_the_next_four_channels():
              "blocks": [{"start_s": 0, "duration_s": 5, "cue": 1, "brightness": 0}]},
         ],
     })
-    frame = timeline(show, project).frame(1.0)[0]
-    assert frame[2] == 2000       # zone 0 brightness up
-    assert frame[6] == 1000       # zone 1 brightness down
+    line = timeline(show, project)
+    assert zone(line, 1.0, 0)["brightness"] == 255      # zone 0 up
+    assert zone(line, 1.0, 1)["brightness"] == 0        # zone 1 down
+    assert line.encoders["eule"].zones == 2
 
 
 # ----------------------------------------------------------------- warnings
@@ -254,29 +274,118 @@ def test_listing_finds_saved_projects(tmp_path):
     assert [p["name"] for p in project_module.list_projects(tmp_path)] == ["eins", "zwei"]
 
 
-def test_an_inverted_quantised_channel_matches_the_midi_path():
-    """The MIDI mapper inverts before quantising; the timeline used to skip it.
+def test_an_inverted_quantised_channel_mirrors_the_step():
+    """Inverting has to mirror the step index, not the microseconds.
 
-    Same channel, same cue -- but a different value depending on whether the
-    show ran from the project or from the DAW.
+    A channel wired the other way round is corrected here, on the way out --
+    the airborne decoder knows nothing about it and reads the step it is given.
     """
-    from lightshow.config import step_us
-    from lightshow.mapping import Slot
-
     show = make_show()
-    model = show.models[0]
-    port = show.ports[0]
-    cue = model.channels[0]
+    cue = show.models[0].channels[0]
     cue.invert = True
 
     line = timeline(show, make_project([{"start_s": 0, "duration_s": 4, "cue": 7}]))
-    from_timeline = line.frame(1.0)[0][0]
+    assert zone(line, 1.0)["cue"] == cue.quantize - 1 - 7
 
-    # What the mapper produces for the same step, driven from the top of the
-    # raw range so the inversion has something to mirror.
-    slot = Slot(model=model, port=port, channel=cue, port_index=0)
-    slot.raw = 7 * (slot.raw_max + 1) // cue.quantize
-    from_midi = slot.microseconds()
 
-    assert from_timeline == from_midi
-    assert from_timeline == step_us(port, cue.quantize, cue.quantize - 1 - 7)
+# ------------------------------------------------------------------- relays
+
+
+def relay_show(relays: int = 2) -> ShowCfg:
+    """A one zone model with `relays` bits, and a board relay for each."""
+    from lightshow.config import BusCfg, BusRelayCfg, PlaneCfg, RelayCfg
+
+    show = make_show()
+    model = show.models[0]
+    model.bus = BusCfg(relays=[BusRelayCfg(f"r{i}", 100 + i) for i in range(relays)])
+    model.plane = PlaneCfg(relays=[RelayCfg(f"r{i}", 6 + i) for i in range(relays)])
+    return show
+
+
+def relay_project(blocks: list[dict], relay: int = 0, model: str = "eule"):
+    return project_module.from_dict({
+        "name": "test",
+        "relay_tracks": [{"model": model, "relay": relay, "blocks": blocks}],
+    })
+
+
+def relay_bits(line, t: float, model: str = "eule") -> list[bool]:
+    line.frame(t)
+    return list(line.encoders[model].relays)
+
+
+def test_a_relay_block_closes_its_bit_and_only_its_bit():
+    show = relay_show()
+    line = timeline(show, relay_project([{"start_s": 2, "duration_s": 3}], relay=1))
+    assert relay_bits(line, 3.0) == [False, True]
+
+
+def test_a_relay_is_off_before_and_after_its_block():
+    show = relay_show(relays=1)
+    line = timeline(show, relay_project([{"start_s": 2, "duration_s": 3}]))
+    assert relay_bits(line, 1.9) == [False]
+    assert relay_bits(line, 2.0) == [True]
+    assert relay_bits(line, 4.99) == [True]
+    assert relay_bits(line, 5.0) == [False]
+
+
+def test_a_relay_nobody_scheduled_is_cleared_every_frame():
+    """The encoder holds its last state, so silence has to mean off.
+
+    Without this a smoke system would keep running from whatever the previous
+    project left in the encoder.
+    """
+    show = relay_show(relays=1)
+    line = timeline(show, relay_project([{"start_s": 0, "duration_s": 1}]))
+    line.encoders["eule"].set_relay(0, True)
+    assert relay_bits(line, 5.0) == [False]
+
+
+def test_a_relay_track_naming_a_bit_that_does_not_exist_is_reported():
+    show = relay_show(relays=1)
+    line = timeline(show, relay_project([], relay=3))
+    assert line.relay_bindings == []
+    assert any("Relais 4" in warning for warning in line.warnings)
+
+
+def test_a_relay_track_on_an_unknown_model_is_reported():
+    line = timeline(relay_show(), relay_project([], model="gibtsnicht"))
+    assert line.relay_bindings == []
+    assert any("gibtsnicht" in warning for warning in line.warnings)
+
+
+def test_overlapping_relay_blocks_are_refused():
+    """An is an is: two blocks saying it would make the gap the only content."""
+    with pytest.raises(project_module.ProjectError, match="an oder aus"):
+        relay_project([{"start_s": 0, "duration_s": 5},
+                       {"start_s": 3, "duration_s": 5}])
+
+
+def test_relay_tracks_survive_the_round_trip_through_json():
+    project = relay_project([{"start_s": 1, "duration_s": 2, "label": "Rauch an"}])
+    again = project_module.from_dict(project_module.to_dict(project))
+    assert len(again.relay_tracks) == 1
+    assert again.relay_tracks[0].blocks[0].label == "Rauch an"
+    assert again.relay_tracks[0].relay == 0
+
+
+def test_the_project_length_counts_relay_blocks_too():
+    """Otherwise a show ending on a smoke burst would be cut short."""
+    project = relay_project([{"start_s": 10, "duration_s": 5}])
+    assert project.duration_s == 15
+
+
+def test_a_relay_reaches_the_wire_as_a_decodable_frame():
+    """The whole path: block on the timeline, bit in the RS(8,6) frame."""
+    from lightshow import bus as bus_mode
+
+    show = relay_show(relays=2)
+    show.ports[0].nchan = 8
+    line = timeline(show, relay_project([{"start_s": 0, "duration_s": 5}], relay=1))
+    port = show.ports[0]
+    block = line.frame(2.0)[0][:bus_mode.SYMBOLS]
+    symbols = [bus_mode.us_to_symbol(us, port.min_us, port.max_us) for us in block]
+    decoded = bus_mode.decode(symbols)
+    assert decoded.ok
+    _, _, relays = bus_mode.unpack(decoded.data, zones=1, relays_count=2)
+    assert relays == [False, True]

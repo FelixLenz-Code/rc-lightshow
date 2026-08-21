@@ -8,7 +8,7 @@ Neuflashen, kein Umlöten.
 tx_ports:
   - id: 0              # Portnummer, id 0 = GPIO2
     name: frsky_ethos
-    format: ppm        # ppm | sbus | off
+    format: ppm        # ppm | sbus (experimentell) | off
     polarity: normal   # normal | inverted
     nchan: 8
     frame_us: 22500    # Framelänge; bei sbus der Frameabstand
@@ -42,8 +42,8 @@ Der erste Zielsender. Die Vorgabe in `show.yaml` passt bereits.
    unterscheidet sich je nach Ethos-Version — gesucht ist die Einstellung, bei
    der dieser Sender sendet und die Kanäle von der Buchse übernimmt.
 2. Die Trainer-Kanäle als Quelle auf die **Lichtkanäle** mischen.
-3. Im Kanalmonitor prüfen, dass sich die Kanäle mit der Ardour-Automation
-   bewegen.
+3. Im Kanalmonitor prüfen, dass sich die Kanäle mit den Blöcken der
+   Zeitleiste bewegen.
 
 > Trainer-Kanäle niemals auf Gas oder Ruder mischen. Ein Fehler in der Show darf
 > das Modell nicht steuern können.
@@ -87,8 +87,8 @@ tx_ports:
      sync_us: 400, min_us: 1000, max_us: 2000}
 
 models:
-  - {name: eule,  midi_channel: 1, tx_port: 0, tx_offset: 0, channels: [...]}
-  - {name: falke, midi_channel: 2, tx_port: 1, tx_offset: 0, channels: [...]}
+  - {name: eule,  tx_port: 0, tx_offset: 0, channels: [...]}
+  - {name: falke, tx_port: 1, tx_offset: 0, channels: [...]}
 ```
 
 In der Web-UI steht dieselbe Zuordnung als **Sender-Buchse** an jedem Modell,

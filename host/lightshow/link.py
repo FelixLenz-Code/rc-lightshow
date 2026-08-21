@@ -13,6 +13,20 @@ from .protocol import PortWire, build_channels, build_config
 RECONNECT_INTERVAL_S = 1.0
 
 
+def open_error(device: str, exc: Exception) -> str:
+    """Says what to do about it, not just what went wrong.
+
+    "Permission denied" on a port that is plainly there means one thing on
+    every desktop Linux, and the fix is one command -- but only if somebody
+    says so. `link: DOWN` on its own has sent people hunting for cables.
+    """
+    text = str(exc)
+    if "Permission denied" in text or isinstance(exc, PermissionError):
+        return (f"keine Rechte an {device} -- einmalig "
+                "'sudo usermod -aG dialout $USER', danach neu anmelden")
+    return text
+
+
 class PicoLink:
     def __init__(self, device: str, wire_ports: Sequence[PortWire], dry_run: bool = False) -> None:
         self.device = device
@@ -48,6 +62,23 @@ class PicoLink:
         # before the first reconnect attempt.
         self._next_attempt = time.monotonic() + RECONNECT_INTERVAL_S
 
+    def reconfigure(self, device: str, wire_ports: Sequence[PortWire]) -> None:
+        """Takes an edited configuration without a restart.
+
+        The port setup -- format, channel count, frame length, failsafe values --
+        is sent once, when the ground station answers. After an edit it has to
+        be sent again, or the board keeps building frames to the old shape while
+        the interface shows the new one. A changed device path is a different
+        board entirely, so that closes and lets `poll` find the new one.
+        """
+        changed_device = device != self.device
+        self.device = device
+        self.wire_ports = list(wire_ports)
+        if changed_device:
+            self.close()
+        elif self._serial is not None:
+            self._send_raw(build_config(self.wire_ports))
+
     def poll(self) -> None:
         """Reconnects when needed and collects status lines from the firmware."""
         if self.dry_run or self._suspended:
@@ -61,7 +92,7 @@ class PicoLink:
             try:
                 self._serial = serial.Serial(self.device, baudrate=115200, timeout=0)
             except (OSError, serial.SerialException) as exc:
-                self.last_error = str(exc)
+                self.last_error = open_error(self.device, exc)
                 return
             self.last_error = None
             self._rx.clear()

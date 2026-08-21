@@ -52,53 +52,92 @@ def test_a_model_reads_the_channel_block_its_offset_names(show):
     """
     for name in ("eule", "falke"):
         entry = model(show, name)
-        if entry.uses_bus:
-            continue          # no zone owns channels there; see the bus tests
-        header = planegen.generate(show, entry)
-        first = entry.tx_offset + 1
-        assert f"{{{first}}}," in header
-        assert f"Kanaele {first}..{first + 3}" in header
+        table = defines(planegen.generate(show, entry))
+        assert table["BUS_FIRST_CHANNEL"] == str(entry.tx_offset + 1)
 
 
 def test_zone_base_channel_follows_the_transmitter_offset(show):
-    """The exception: a model pushed up the frame must read 5..8, not 1..4.
+    """A model pushed up the frame must read 5..12, not 1..8.
 
-    That happens when a model has a second zone, and when two receivers are
-    deliberately bound to one transmitter.
+    That happens when two receivers are deliberately bound to one transmitter.
     """
     shifted = model(show, "falke")
     shifted.tx_offset = 4
     header = planegen.generate(show, shifted)
     shifted.tx_offset = 0                       # the fixture is module scoped
-    assert "{5}," in header and "Kanaele 5..8" in header
+    assert defines(header)["BUS_FIRST_CHANNEL"] == "5"
+    assert "{5}," in header
 
 
-def test_a_second_zone_takes_the_next_four_channels(show):
-    """Zones are what tx_offset normally has to make room for."""
+def test_a_second_zone_costs_no_further_channels(show):
+    """The whole point of the bus: zones are addressed, not laid out.
+
+    Under the old scheme a second zone claimed the next four channels. Now the
+    eight coded ones carry both, and only the zone count moves.
+    """
     two = model(show, "falke")                  # sits at offset 0, one zone
     original = list(two.channels)
     two.channels = original + original          # eight channels, two zones
-    header = planegen.generate(show, two)
+    table = defines(planegen.generate(show, two))
     two.channels = original
-    assert "#define ZONE_COUNT 2" in header
-    assert "{1}," in header and "{5}," in header
+    assert table["ZONE_COUNT"] == "2"
+    assert table["BUS_ZONES"] == "2"
+    assert table["BUS_FIRST_CHANNEL"] == "1"
 
 
-def test_strip_table_matches_the_configuration(show):
+def test_output_and_segment_tables_match_the_configuration(show):
+    """The chains and how they are divided are two tables, not one."""
     header = planegen.generate(show, model(show, "eule"))
-    assert defines(header)["STRIP_COUNT"] == "2"
-    assert "{2, 30, 0, 0, false}" in header    # linke Fläche
-    assert "{3, 30, 0, 0, true}" in header     # rechte, gespiegelt
+    table = defines(header)
+    assert table["OUTPUT_COUNT"] == "2"
+    assert table["SEGMENT_COUNT"] == "2"
+    assert table["OUTPUT_PIXEL_TOTAL"] == "60"
+    # pin, pixels, where the chain starts in the shared frame buffer
+    assert "{2, 30, 0}," in header             # linke Fläche
+    assert "{3, 30, 30}," in header            # rechte, dahinter im Puffer
+    # output, start, count, zone, offset, reverse
+    assert "{0, 0, 30, 0, 0, false}," in header
+    assert "{1, 0, 30, 0, 0, true}," in header
 
 
-def test_relay_sources_use_the_firmware_macros(show):
-    """Every configured source has to reach the header as its macro."""
+def test_a_divided_chain_reaches_two_zones(show):
+    """One GPIO, one state machine, two zones -- the point of segments."""
+    from lightshow import config as config_module
+
+    entry = model(show, "eule")
+    keep = (list(entry.plane.outputs), list(entry.plane.nav_lights))
+    try:
+        entry.plane.nav_lights = []      # they name chains that go away here
+        entry.plane.outputs = [config_module.OutputCfg(
+            name="rumpf", pin=2, count=60, segments=[
+                config_module.SegmentCfg("vorn", start=0, count=30, zone=0),
+                config_module.SegmentCfg("hinten", start=30, count=30, zone=1),
+            ])]
+        header = planegen.generate(show, entry)
+        table = defines(header)
+        assert table["OUTPUT_COUNT"] == "1"
+        assert table["SEGMENT_COUNT"] == "2"
+        assert table["OUTPUT_PIXEL_TOTAL"] == "60"
+        assert "{0, 0, 30, 0, 0, false}," in header
+        assert "{0, 30, 30, 1, 0, false}," in header
+    finally:
+        entry.plane.outputs, entry.plane.nav_lights = keep
+
+
+def test_the_relay_table_is_in_bit_order(show):
+    """Position is the bit in the frame, so the order is the whole mapping.
+
+    A relay carries no slot number any more; if the generator ever reordered
+    this table, smoke and strobe would swap without anything looking wrong.
+    """
     for name in ("eule", "falke"):
         entry = model(show, name)
         header = planegen.generate(show, entry)
         assert defines(header)["RELAY_COUNT"] == str(len(entry.plane.relays))
-        for relay in entry.plane.relays:
-            assert planegen.SOURCE_MACRO[relay.source] in header
+        for index, relay in enumerate(entry.plane.relays):
+            assert f"Bit {index}: {relay.name}" in header
+        # The wire list is what reserves the bits, and it has to agree.
+        assert defines(header)["BUS_RELAY_COUNT"] == str(len(entry.plane.relays))
 
 
 def test_cue_steps_follow_the_quantize_setting(show):
@@ -117,7 +156,7 @@ def test_models_really_differ_in_the_generated_output(show):
     eule = planegen.generate(show, model(show, "eule"))
     falke = planegen.generate(show, model(show, "falke"))
     assert eule != falke
-    assert defines(eule)["STRIP_COUNT"] != defines(falke)["STRIP_COUNT"]
+    assert defines(eule)["OUTPUT_COUNT"] != defines(falke)["OUTPUT_COUNT"]
 
 
 def test_generated_guard_does_not_clash_with_config_h(show):
@@ -130,7 +169,7 @@ def test_generated_guard_does_not_clash_with_config_h(show):
 def test_model_without_plane_section_is_refused():
     show = config_module.ShowCfg(
         ports=[config_module.PortCfg(id=0, name="tx")],
-        models=[config_module.ModelCfg("x", 1, 0)],
+        models=[config_module.ModelCfg("x", 0)],
     )
     with pytest.raises(ValueError, match="no plane configuration"):
         planegen.generate(show, show.models[0])
@@ -153,15 +192,15 @@ def test_wiring_covers_every_configured_output(show):
     eule = model(show, "eule")
     rows = planegen.wiring(eule)
     pins = {row.gpio for row in rows}
-    for strip in eule.plane.strips:
-        assert strip.pin in pins
+    for output in eule.plane.outputs:
+        assert output.pin in pins
     for relay in eule.plane.relays:
         assert relay.pin in pins
 
 
 def test_wiring_distinguishes_mosfet_from_relay_board(show):
     rows = planegen.wiring(model(show, "eule"))
-    mosfet = next(r for r in rows if "scheinwerfer" in r.role)
+    mosfet = next(r for r in rows if "blitz" in r.role)
     board = next(r for r in rows if "rauch" in r.role)
     assert "MOSFET" in mosfet.note
     assert "LOW" in board.note
@@ -214,13 +253,16 @@ def test_generated_header_compiles_against_the_firmware(show, tmp_path):
     probe = tmp_path / "probe.c"
     probe.write_text(
         '#include "config.h"\n'
-        "static const strip_cfg_t strips[] = STRIPS;\n"
+        "static const output_cfg_t outs[] = OUTPUTS;\n"
+        "static const segment_cfg_t segs[] = SEGMENTS;\n"
         "static const relay_cfg_t relays[] = RELAYS;\n"
         "static const zone_cfg_t zones[] = ZONES;\n"
         "static const nav_light_t navs[] = NAV_LIGHTS;\n"
         "int main(void) {\n"
-        "  return (int)(sizeof(strips) + sizeof(relays) + sizeof(zones) + sizeof(navs)\n"
-        "               + STRIP_COUNT + RELAY_COUNT + ZONE_COUNT + NAV_COUNT);\n"
+        "  return (int)(sizeof(outs) + sizeof(segs) + sizeof(relays)\n"
+        "               + sizeof(zones) + sizeof(navs) + OUTPUT_COUNT\n"
+        "               + SEGMENT_COUNT + OUTPUT_PIXEL_TOTAL + RELAY_COUNT\n"
+        "               + ZONE_COUNT + NAV_COUNT);\n"
         "}\n"
     )
     result = subprocess.run(
@@ -244,10 +286,8 @@ def bus_model(show, zones=4, relays=2):
     for zone in range(zones):
         for offset, channel in enumerate(base):
             entry.channels.append(config_module.ChannelCfg(
-                role=channel.role, cc=20 + zone * 4 + offset,
-                quantize=channel.quantize, failsafe=channel.failsafe))
+                role=channel.role, quantize=channel.quantize, failsafe=channel.failsafe))
     entry.bus = config_module.BusCfg(
-        enabled=True,
         relays=[config_module.BusRelayCfg(f"r{i}", 100 + i) for i in range(relays)])
     return entry
 
@@ -258,7 +298,6 @@ def test_a_bus_model_declares_the_frame_the_firmware_has_to_decode(show):
     try:
         header = planegen.generate(show, bus_model(show, zones=6, relays=1))
         table = defines(header)
-        assert table["BUS_MODE"] == "1"
         assert table["BUS_ZONES"] == "6"
         assert table["BUS_RELAY_COUNT"] == "1"
         assert table["ZONE_COUNT"] == "6"
@@ -270,10 +309,14 @@ def test_a_bus_model_declares_the_frame_the_firmware_has_to_decode(show):
         entry.channels, entry.bus = keep
 
 
-def test_a_classic_model_says_so_rather_than_leaving_it_open(show):
-    """`#if BUS_MODE` on a missing macro is silently false -- but a header that
-    states it can be read by a human without knowing that rule."""
-    assert defines(planegen.generate(show, model(show, "falke")))["BUS_MODE"] == "0"
+def test_no_header_can_switch_the_bus_off_any_more(show):
+    """There is one mode left, so there is no macro to get wrong.
+
+    A `#if BUS_MODE` on a missing macro is silently false; a header that could
+    still say 0 would build a firmware that reads channels nobody sends.
+    """
+    for name in ("eule", "falke"):
+        assert "BUS_MODE" not in defines(planegen.generate(show, model(show, name)))
 
 
 def test_the_bus_relay_slots_are_named_in_the_header(show):
@@ -310,7 +353,7 @@ def test_a_bus_header_compiles_and_matches_the_decoder(show, tmp_path):
             "_Static_assert(BUS_RELAY_COUNT <= BUS_MAX_RELAYS, \"zu viele Relais\");\n"
             "_Static_assert(BUS_ZONES == ZONE_COUNT, \"Zonenzahl uneinig\");\n"
             "int main(void) {\n"
-            "  return (int)(sizeof(zones) + BUS_MODE + BUS_FIRST_CHANNEL\n"
+            "  return (int)(sizeof(zones) + BUS_FIRST_CHANNEL\n"
             "               + BUS_CUE_ALL_OFF + bus_address_bits(BUS_ZONES));\n"
             "}\n"
         )

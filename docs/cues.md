@@ -28,10 +28,10 @@ Stufen 11–31 sind bewusst als Dauerlicht definiert statt als „nichts", damit
 Tippfehler in der Automation nicht zu einem dunklen Modell führt. Sie sind der
 Platz für eigene Effekte in `firmware/plane/src/effects.c`.
 
-> **Stufe 31 im Bus-Modus nicht belegen.** Dort bedeutet sie auf der Leitung
-> „alles aus, alle Zonen" — so wirkt ein einzelner Failsafe-Rahmen auf das ganze
-> Modell und nicht nur auf die eine Zone, die er adressiert. Siehe
-> [Bus-Modus](bus-modus.md). Ohne Bus-Modus ist 31 eine Stufe wie jede andere.
+> **Stufe 31 nicht belegen.** Auf der Leitung bedeutet sie „alles aus, alle
+> Zonen" — so wirkt ein einzelner Failsafe-Rahmen auf das ganze Modell und nicht
+> nur auf die eine Zone, die er adressiert. Das gilt für jedes Modell, denn jedes
+> fährt über den [Bus](bus-modus.md).
 
 ## Die anderen Kanäle
 
@@ -41,34 +41,25 @@ Platz für eigene Effekte in `firmware/plane/src/effects.c`.
 | `brightness` | Master-Dimmer. 0 schaltet dunkel, unabhängig vom Cue.          |
 | `param`      | Tempo: 0 ≈ 2 s Periode, 255 ≈ 100 ms.                          |
 
-Helligkeit ist gammakorrigiert (2,2), ein linearer Fade in Ardour sieht also
+Helligkeit ist gammakorrigiert (2,2), ein linearer Fade im Editor sieht also
 auch linear aus.
 
 ## Relais
 
-Relais hängen an derselben Effekt-Engine, siehe die Tabelle `RELAYS` in
-`firmware/plane/src/config.h`:
+Relais hängen **nicht** an der Effekt-Engine. Sie werden über den Bus
+geschaltet: ein Bit im Rahmen, ein eigener Control-Change, ab 64 an. Siehe die
+Tabelle `RELAYS` in `firmware/plane/src/config.h` — dort steht nur noch, an
+welchem Pin ein Relais hängt und wie schnell es schalten darf. Welches Relais es
+ist, sagt seine Position: die ist zugleich sein Bit auf der Leitung.
 
-| Quelle                 | Verhalten                                              | Kanalkosten |
-|------------------------|--------------------------------------------------------|-------------|
-| `RELAY_SRC_PIXEL`      | folgt einem Pixel der Zone, blitzt exakt mit dem Effekt | keine       |
-| `RELAY_SRC_BRIGHTNESS` | an, solange `brightness` über der Schwelle liegt        | keine       |
-| `RELAY_SRC_CUE`        | an ab Cue `arg`                                        | keine       |
-| `RELAY_SRC_CHANNEL`    | an über einen eigenen RC-Kanal                         | ein Kanal   |
+Cue 0 hat auf Relais deshalb keinen Einfluss mehr. Was sie abschaltet, ist der
+Rahmen, der „alles aus" sagt — [Cue-Stufe 31 auf der Leitung](bus-modus.md) —
+sowie Funkausfall und Blackout. Bei Funkausfall fallen sie sofort ab, ohne
+Rücksicht auf Mindestschaltzeiten: ein Rauchsystem soll nicht noch 200 ms
+weiterlaufen.
 
-`RELAY_SRC_PIXEL` ist der interessante Fall: Ein Scheinwerfer am MOSFET blitzt
-damit exakt synchron zum Strobe der LEDs, ohne dass die Show davon etwas wissen
-muss. Als Pixelindex nimmt man am besten einen, der im gewünschten Effekt auch
-wirklich blinkt — bei einem Lauflicht flackert sonst nur, wenn der Punkt gerade
-vorbeikommt.
-
-**Cue 0 schaltet alle Relais ab**, unabhängig von ihrer Quelle. Bei Funkausfall
-fallen sie sofort ab, ohne Rücksicht auf Mindestschaltzeiten — ein Rauchsystem
-soll nicht noch 200 ms weiterlaufen.
-
-Mechanische Relais brauchen `min_on_ms`/`min_off_ms` von etwa 200. Sie folgen
-dann demselben Effekt, schalten aber nur so oft, wie sie es überleben. Details
-zur Treiberschaltung in [`../hardware/README.md`](../hardware/README.md).
+Mechanische Relais brauchen `min_on_ms`/`min_off_ms` von etwa 200. Details zur
+Treiberschaltung in [`../hardware/README.md`](../hardware/README.md).
 
 ## Was immer läuft
 

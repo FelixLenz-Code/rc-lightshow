@@ -19,15 +19,6 @@ from .config import (
     ShowCfg,
 )
 
-SOURCE_MACRO = {
-    "pixel": "RELAY_SRC_PIXEL",
-    "brightness": "RELAY_SRC_BRIGHTNESS",
-    "cue": "RELAY_SRC_CUE",
-    "channel": "RELAY_SRC_CHANNEL",
-    "bus": "RELAY_SRC_BUS",
-}
-
-
 @dataclass
 class WiringRow:
     gpio: int
@@ -58,17 +49,27 @@ def wiring(model: ModelCfg) -> list[WiringRow]:
                   "der einzige Weg: eine Leitung, alle 16 Kanaele"),
     ]
 
-    for index, strip in enumerate(plane.strips):
+    for index, output in enumerate(plane.outputs):
+        # One line per chain -- that is what gets soldered. Which zones ride on
+        # it is a property of the chain, so it goes in the same line.
+        parts = []
+        for segment in output.segments:
+            span = (f"{segment.start}..{segment.end - 1}" if segment.count > 1
+                    else str(segment.start))
+            # One based, as every zone label in the interface is.
+            parts.append(f"Pixel {span} -> Zone {segment.zone + 1}"
+                         + (f" ab {segment.offset}" if segment.offset else "")
+                         + (", rueckwaerts" if segment.reverse else ""))
         rows.append(WiringRow(
-            strip.pin, _pin_label(strip.pin), f"LED-Strip {index}: {strip.name}",
-            f"{strip.count} Pixel, Zone {strip.zone}, Offset {strip.offset}"
-            + (", rueckwaerts" if strip.reverse else ""),
+            output.pin, _pin_label(output.pin),
+            f"LED-Strip {index}: {output.name}",
+            f"{output.count} Pixel; " + "; ".join(parts),
             "ueber 74AHCT125 und 330 Ohm an DIN"))
 
     for index, relay in enumerate(plane.relays):
         rows.append(WiringRow(
             relay.pin, _pin_label(relay.pin), f"Relais {index}: {relay.name}",
-            describe_relay(relay),
+            describe_relay(relay, index),
             "Relaismodul, schaltet bei LOW" if relay.active_low
             else "MOSFET-Gate ueber 100 Ohm, 100k gegen Masse"))
 
@@ -79,25 +80,16 @@ def wiring(model: ModelCfg) -> list[WiringRow]:
     return rows
 
 
-def describe_relay(relay) -> str:
+def describe_relay(relay, slot: int | None = None) -> str:
     speed = ("MOSFET, folgt jedem Muster" if relay.min_on_ms == 0 and relay.min_off_ms == 0
              else f"mechanisch, min {relay.min_on_ms}/{relay.min_off_ms} ms")
-    if relay.source == "pixel":
-        what = f"folgt Pixel {relay.arg} ab Helligkeit {relay.threshold}"
-    elif relay.source == "brightness":
-        what = f"an ab Master-Dimmer {relay.threshold}"
-    elif relay.source == "cue":
-        what = f"an ab Cue {relay.arg}"
-    elif relay.source == "bus":
-        what = f"direkt geschaltet, Bus-Steckplatz {relay.arg}"
-    else:
-        what = f"an ab RC-Kanal {relay.arg} ueber {relay.threshold}"
+    what = "direkt geschaltet" + (f", Bus-Bit {slot}" if slot is not None else "")
     return f"{what}; {speed}"
 
 
 def power_estimate(plane: PlaneCfg) -> dict[str, float]:
     """Rough current draw of the LED strips, in ampere."""
-    pixels = sum(strip.count for strip in plane.strips)
+    pixels = sum(output.count for output in plane.outputs)
     worst = pixels * 0.06
     typical = worst * (plane.max_brightness / 255.0) / 3.0
     return {"pixels": pixels, "worst_a": round(worst, 2), "typical_a": round(typical, 2)}
@@ -144,62 +136,66 @@ def generate(show: ShowCfg, model: ModelCfg) -> str:
     add("#define RC_TIMEOUT_MS 500")
     add("")
 
-    if model.uses_bus:
-        first = model.tx_offset + 1
-        add(f"// Bus mode: channels {first}..{first + bus_mode.SYMBOLS - 1} carry "
-            f"one RS(8,6) coded frame,")
-        add(f"// {zones} zone(s) taking turns, one per RC frame.")
-        add("#define BUS_MODE 1")
-        add(f"#define BUS_FIRST_CHANNEL {first}")
-        add(f"#define BUS_ZONES {zones}")
-        add(f"#define BUS_RELAY_COUNT {model.bus.relay_count}")
-        if model.bus.relays:
-            add("// Slot order is the wire order; a relay refers to it by index.")
-            for index, relay in enumerate(model.bus.relays):
-                add(f"//   {index}: {relay.name}")
-        # The all-off command is a property of the wire, not of this model --
-        # bus.h owns it, and the cross-check keeps both sides in step.
-        add("")
-        add(f"#define ZONE_COUNT {zones}")
-        # A zone owns no channels here, but the rest of the firmware still asks
-        # for a base channel; the bus decoder is what actually feeds the zones.
-        add("#define ZONES { \\")
-        for zone in range(zones):
-            add(f"    {{{first}}},  /* Zone {zone}: aus dem Bus */ \\")
-        add("}")
-        add("")
-    else:
-        add("#define BUS_MODE 0")
-        add(f"// {zones} zone(s); this model sits on transmitter channels "
-            f"{model.tx_offset + 1}..{model.tx_offset + len(model.channels)}.")
-        add(f"#define ZONE_COUNT {zones}")
-        add("#define ZONES { \\")
-        for zone in range(zones):
-            add(f"    {{{model.zone_base_channel(zone)}}},  /* Zone {zone}: Kanaele "
-                f"{model.zone_base_channel(zone)}.."
-                f"{model.zone_base_channel(zone) + 3} */ \\")
-        add("}")
-        add("")
+    first = model.tx_offset + 1
+    add(f"// Bus: channels {first}..{first + bus_mode.SYMBOLS - 1} carry "
+        f"one RS(8,6) coded frame,")
+    add(f"// {zones} zone(s) taking turns, one per RC frame.")
+    add(f"#define BUS_FIRST_CHANNEL {first}")
+    add(f"#define BUS_ZONES {zones}")
+    add(f"#define BUS_RELAY_COUNT {model.bus.relay_count}")
+    if model.bus.relays:
+        add("// Slot order is the wire order; a relay refers to it by index.")
+        for index, relay in enumerate(model.bus.relays):
+            add(f"//   {index}: {relay.name}")
+    # The all-off command is a property of the wire, not of this model --
+    # bus.h owns it, and the cross-check keeps both sides in step.
+    add("")
+    add(f"#define ZONE_COUNT {zones}")
+    # A zone owns no channels here, but the rest of the firmware still asks
+    # for a base channel; the bus decoder is what actually feeds the zones.
+    add("#define ZONES { \\")
+    for zone in range(zones):
+        add(f"    {{{first}}},  /* Zone {zone}: aus dem Bus */ \\")
+    add("}")
+    add("")
 
-    add(f"#define STRIP_COUNT {len(plane.strips)}")
-    if plane.strips:
-        add("#define STRIPS { \\")
-        for strip in plane.strips:
-            add(f"    {{{strip.pin}, {strip.count}, {strip.zone}, {strip.offset}, "
-                f"{'true' if strip.reverse else 'false'}}},  /* {strip.name} */ \\")
+    segments = plane.segments
+    add(f"#define OUTPUT_COUNT {len(plane.outputs)}")
+    add(f"#define SEGMENT_COUNT {len(segments)}")
+    # Every chain lives in one flat frame buffer; this is how long it has to be.
+    add(f"#define OUTPUT_PIXEL_TOTAL "
+        f"{sum(output.count for output in plane.outputs)}")
+    if plane.outputs:
+        add("// The physical chains: pin, pixels, and where they start in the")
+        add("// shared frame buffer.")
+        add("#define OUTPUTS { \\")
+        cursor = 0
+        for output in plane.outputs:
+            add(f"    {{{output.pin}, {output.count}, {cursor}}},"
+                f"  /* {output.name} */ \\")
+            cursor += output.count
+        add("}")
+        add("")
+        add("// How those chains are divided between the zones.")
+        add("#define SEGMENTS { \\")
+        for index, segment in segments:
+            add(f"    {{{index}, {segment.start}, {segment.count}, {segment.zone}, "
+                f"{segment.offset}, {'true' if segment.reverse else 'false'}}},"
+                f"  /* {plane.outputs[index].name}: {segment.name} */ \\")
         add("}")
     else:
-        add("#define STRIPS {}")
+        add("#define OUTPUTS {}")
+        add("#define SEGMENTS {}")
     add("")
 
     add(f"#define RELAY_COUNT {len(plane.relays)}")
     if plane.relays:
+        add("// Position is the bit in the bus frame -- there is no slot field.")
         add("#define RELAYS { \\")
-        for relay in plane.relays:
-            add(f"    {{{relay.pin}, {relay.zone}, {SOURCE_MACRO[relay.source]}, "
-                f"{relay.arg}, {relay.threshold}, "
-                f"{'true' if relay.active_low else 'false'}, "
-                f"{relay.min_on_ms}, {relay.min_off_ms}}},  /* {relay.name} */ \\")
+        for index, relay in enumerate(plane.relays):
+            add(f"    {{{relay.pin}, {'true' if relay.active_low else 'false'}, "
+                f"{relay.min_on_ms}, {relay.min_off_ms}}},"
+                f"  /* Bit {index}: {relay.name} */ \\")
         add("}")
     else:
         add("#define RELAYS {}")
@@ -210,9 +206,9 @@ def generate(show: ShowCfg, model: ModelCfg) -> str:
         add("#define NAV_LIGHTS { \\")
         for nav in plane.nav_lights:
             r, g, b = nav.color
-            strip_name = plane.strips[nav.strip].name
-            add(f"    {{{nav.strip}, {nav.index}, {r}, {g}, {b}}},"
-                f"  /* {strip_name} Pixel {nav.index} */ \\")
+            output_name = plane.outputs[nav.output].name
+            add(f"    {{{nav.output}, {nav.index}, {r}, {g}, {b}}},"
+                f"  /* {output_name} Pixel {nav.index} */ \\")
         add("}")
     else:
         add("#define NAV_LIGHTS {}")
