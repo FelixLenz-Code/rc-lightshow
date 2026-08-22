@@ -474,23 +474,25 @@ function wizStepRadio() {
           ${(CONFIG ? CONFIG.tx_ports : []).map((port) => {
             // Who is already there, not "taken": a second model on the same
             // jack is a build, not a mistake. What it has to avoid is their
-            // channel blocks, and that is what the offset below is for. The
-            // model being edited does not count as occupying its own jack.
-            const here = (CONFIG.models || []).filter(
-              (m) => m.tx_port === port.id && m.name !== WIZ.editing);
-            // Everything here is worked out from what stands in the file right
-            // now. The jack's `name` used to be shown instead, and that was a
-            // label nothing ever wrote: it came out of whichever example
-            // configuration the workspace was once seeded with and then said
-            // "eule_sender" for years, on a jack whose eule was long gone.
-            const shape = port.format === 'off' ? ''
-              : port.format === 'sbus' ? 'SBUS'
-              : `PPM ${port.nchan} Kanäle`;
-            const state = [
-              here.length ? `auch: ${here.map((m) => m.name).join(', ')}` : 'frei',
-              shape,
-            ].filter(Boolean).join(' · ');
-            return `<option value="${port.id}" ${WIZ.tx_port === port.id ? 'selected' : ''}
+            // channel blocks, and that is what the offset below is for. This
+            // model itself is counted by where the wizard currently points --
+            // not by where the file still has it, which is a save behind.
+            const here = wizNeighbours(port.id).map((other) => other.name);
+            const mine = WIZ.tx_port === port.id;
+            // A jack nothing sits on has no format worth mentioning: whatever
+            // stands there is a leftover from the model that used to be there,
+            // and the next one to land writes its own. So the signal shape is
+            // only shown where somebody is actually using it -- for this model
+            // as the wizard would write it, for the others as the file has it.
+            const shape = (format, nchan) => format === 'off' ? ''
+              : format === 'sbus' ? 'SBUS' : `PPM ${nchan} Kanäle`;
+            const who = [mine ? 'dieses Modell' : '', here.join(', ')].filter(Boolean);
+            const state = who.length
+              ? [who.join(' + '), mine ? shape(WIZ.format, WIZ.nchan)
+                                       : shape(port.format, port.nchan)]
+                  .filter(Boolean).join(' · ')
+              : 'frei';
+            return `<option value="${port.id}" ${mine ? 'selected' : ''}
               >Buchse ${port.id + 1} · GP${portGpio(port.id)} — ${esc(state)}</option>`;
           }).join('')}
         </select></div>
@@ -545,6 +547,15 @@ function wizStepRadio() {
       Wer es probiert: erst am Boden im Kanalmonitor prüfen, dann fliegen.
       Der Hintergrund steht in <i>docs/bus-modus.md</i>, das Konkrete zum
       eigenen Sender in <i>docs/sender-setup.md</i>.
+    </div>` : ''}
+
+    ${wizNeighbours().length ? `<div class="note" style="margin-top:12px">
+      Auf dieser Buchse sitzt auch
+      <b>${esc(wizNeighbours().map((other) => other.name).join(', '))}</b>.
+      Format, Kanalzahl und Rahmenlänge gehören der <i>Buchse</i> — es ist ein
+      Signal aus einer Klinke, und was hier steht, gilt für alle daran. Getrennt
+      ist nur der Kanalblock: ${esc(wizNeighbours().map(
+        (other) => `${other.name} auf ${other.from + 1}–${other.to}`).join(', '))}.
     </div>` : ''}
 
     <div class="note" style="margin-top:14px">
@@ -1136,6 +1147,14 @@ function wizBuild() {
   const at = CONFIG.models.findIndex((entry) => entry.name === WIZ.editing);
   if (at >= 0) CONFIG.models[at] = model;
   else CONFIG.models.push(model);
+
+  // One rule, applied here rather than in three places: a jack that carries no
+  // model is switched off. Deleting a model already did that for its own jack;
+  // *moving* one did not, so the jack it left went on sending a frame out of a
+  // socket nobody listens to any more, and the assistant went on offering it as
+  // set up. Older workspaces have collected a few of those, and this is where
+  // they get cleared -- `freeJack` never touches a jack a model still sits on.
+  (CONFIG.tx_ports || []).forEach((entry) => freeJack(entry.id));
   return model;
 }
 
@@ -1188,13 +1207,29 @@ function wizBind() {
       } else if (key === 'frame_us') {
         wizLoadBus().then(wizRefreshFooter);
       } else if (key === 'tx_port') {
+        // The jack belongs to the transmitter, not to the model. Sits another
+        // model on it, then format, channel count and frame length are already
+        // decided -- they are one signal out of one socket. Taking them over
+        // beats writing this model's own over them, which is what happened
+        // before: moving a 16 channel model onto an 8 channel jack quietly
+        // changed the frame the neighbour rides in.
+        const shared = wizNeighbours(WIZ.tx_port).length;
+        const port = (CONFIG.tx_ports || []).find((p) => p.id === WIZ.tx_port);
+        const frameWas = WIZ.frame_us;
+        if (shared && port && port.format !== 'off') {
+          WIZ.format = port.format;
+          WIZ.nchan = port.nchan;
+          WIZ.frame_us = port.frame_us;
+        }
         // Landing on top of the model already there would only be found out on
         // save, so the wizard moves out of the way by itself. Deliberately not
         // done for a hand-typed offset: that is somebody saying where they want
         // it, and being overruled is worse than being told.
         const free = wizFreeOffset(WIZ.tx_port);
         if (free !== null && wizBlockClash()) WIZ.tx_offset = free;
-        wizRender();
+        // The combination table is worked out for one frame length.
+        if (WIZ.frame_us !== frameWas) wizLoadBus().then(wizRender);
+        else wizRender();
         return;
       } else if (key !== 'name') {
         wizRender();

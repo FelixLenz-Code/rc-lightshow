@@ -225,6 +225,14 @@ Mehrere Modelle auf **einer** Sender-Buchse sind erlaubt, solange sich ihre
 Kanalblöcke nicht überschneiden; in ein Projekt kommt davon dann nur eines.
 Aufgeklappt zeigt jede Karte, wo im Rumpf was angeschlossen wird.
 
+Die Buchse gehört dabei dem **Sender**, nicht dem Modell: Format, Kanalzahl und
+Rahmenlänge sind ein Signal aus einer Klinke und gelten für alles, was daran
+hängt. Zieht ein Modell auf eine Buchse, auf der schon eines sitzt, übernimmt
+der Assistent deren Einstellungen, statt sie zu überschreiben — sonst änderte
+sich der Rahmen, in dem der Nachbar fliegt. Und eine Buchse, auf der kein Modell
+mehr sitzt, wird abgeschaltet: die Bodenstation soll keine Rahmen aus einer
+Klinke schicken, an der niemand mehr zuhört.
+
 **Exportieren** legt ein Modell als Datei ab, **Importieren …** liest eine
 wieder ein. Zwei Konfigurationen, die sich nie begegnet sind, stoßen dabei fast
 überall zusammen — beide legen das Licht auf Buchse 1 ab Kanal 9. Das importierte Modell wird deshalb aus dem Weg gerückt
