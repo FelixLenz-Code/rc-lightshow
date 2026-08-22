@@ -24,17 +24,77 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import paths
+
 BOOTSEL_MARKER = "INFO_UF2.TXT"
 MAGIC_BAUD = 1200
+
+#: Where a pico-sdk lands when it is installed the usual ways: cloned by hand,
+#: by pico-setup.sh, by the VS Code extension, or from a distribution package.
+#: A star stands for one level of directory, which is how the extension keeps
+#: several versions side by side.
+SDK_PLACES = (
+    "~/pico-sdk",
+    "~/pico/pico-sdk",
+    "~/.pico-sdk/sdk/*",
+    "/usr/share/pico-sdk",
+    "/usr/local/share/pico-sdk",
+    "/opt/pico-sdk",
+)
 
 
 # --------------------------------------------------------------- toolchain --
 
 
+def is_sdk(path: Path) -> bool:
+    """Whether a directory really is a pico-sdk and not just named like one."""
+    return (Path(path) / "external" / "pico_sdk_import.cmake").is_file()
+
+
+def find_sdk() -> Path | None:
+    """The pico-sdk on this machine: what the environment says, else a search.
+
+    The environment alone is not enough to go on. Started from the desktop menu
+    -- which is how the AppImage is normally started -- the bridge inherits the
+    session's environment, not the shell's, so the `export PICO_SDK_PATH` in
+    ~/.bashrc is simply not there. The SDK is, though, and refusing to build
+    because a variable is missing while the SDK sits in ~/pico-sdk is a riddle
+    rather than an instruction.
+
+    Found here, it is also handed to cmake explicitly (`build_env`), because the
+    firmware's CMakeLists reads it out of the environment.
+    """
+    named = os.environ.get("PICO_SDK_PATH", "")
+    if named and is_sdk(Path(named).expanduser()):
+        return Path(named).expanduser()
+
+    places = [*SDK_PLACES, str(paths.workspace() / "pico-sdk")]
+    for place in places:
+        pattern = Path(place).expanduser()
+        if "*" in place:
+            # Newest first, so a machine with several versions builds against
+            # the one it most recently installed.
+            found = sorted((c for c in pattern.parent.glob(pattern.name)
+                            if is_sdk(c)), reverse=True)
+            if found:
+                return found[0]
+        elif is_sdk(pattern):
+            return pattern
+    return None
+
+
+def build_env() -> dict[str, str]:
+    """The environment cmake is run in: ours, plus the SDK we found."""
+    env = dict(os.environ)
+    sdk = find_sdk()
+    if sdk is not None:
+        env["PICO_SDK_PATH"] = str(sdk)
+    return env
+
+
 def toolchain_status() -> dict:
     """What is missing before a build can even be attempted."""
-    sdk = os.environ.get("PICO_SDK_PATH", "")
-    sdk_ok = bool(sdk) and (Path(sdk) / "external" / "pico_sdk_import.cmake").is_file()
+    sdk = find_sdk()
     compiler = shutil.which("arm-none-eabi-gcc")
     cmake = shutil.which("cmake")
 
@@ -43,8 +103,8 @@ def toolchain_status() -> dict:
         missing.append("cmake")
     if not compiler:
         missing.append("gcc-arm-none-eabi")
-    if not sdk_ok:
-        missing.append("PICO_SDK_PATH auf ein pico-sdk-Verzeichnis")
+    if sdk is None:
+        missing.append("pico-sdk — weder in PICO_SDK_PATH noch in ~/pico-sdk")
 
     # The hint names only what this machine is actually missing. Out of an
     # AppImage that matters more than in a checkout: the toolchain is half a
@@ -60,18 +120,18 @@ def toolchain_status() -> dict:
     steps = []
     if packages:
         steps.append("sudo apt install " + " ".join(packages))
-    if not sdk_ok:
-        default_sdk = Path.home() / "pico-sdk"
-        if not (default_sdk / "external" / "pico_sdk_import.cmake").is_file():
-            steps.append("git clone --depth 1 --recurse-submodules "
-                         "https://github.com/raspberrypi/pico-sdk ~/pico-sdk")
-        steps.append("export PICO_SDK_PATH=~/pico-sdk")
+    if sdk is None:
+        # No `export` line: the search above looks in ~/pico-sdk anyway, and
+        # a variable set in a terminal would not reach a program started from
+        # the menu. Cloning it there is the whole instruction.
+        steps.append("git clone --depth 1 --recurse-submodules "
+                     "https://github.com/raspberrypi/pico-sdk ~/pico-sdk")
 
     return {
         "ok": not missing,
         "cmake": cmake,
         "compiler": compiler,
-        "sdk": sdk if sdk_ok else None,
+        "sdk": None if sdk is None else str(sdk),
         "missing": missing,
         "hint": " && ".join(steps),
     }
@@ -160,8 +220,11 @@ class Job:
 def _run(job: Job, command: list[str], cwd: Path) -> bool:
     job.log("$ " + " ".join(command))
     try:
+        # The SDK goes in through the environment because that is where the
+        # firmware's CMakeLists reads it from -- and it may well not be in ours.
         process = subprocess.Popen(command, cwd=str(cwd), stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                   stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                   env=build_env())
     except OSError as exc:
         job.log(f"! {exc}")
         return False
@@ -178,6 +241,9 @@ def build_plane(job: Job, repo: Path, model: str) -> None:
         job.finish(False, "Toolchain unvollständig: " + ", ".join(status["missing"])
                    + "\n" + status["hint"])
         return
+    # Which SDK it was built against belongs in the log: on a machine with more
+    # than one, that is the difference between two images.
+    job.log(f"pico-sdk: {status['sdk']}")
 
     header = repo / "firmware" / "plane" / "generated" / f"{model}.h"
     if not header.is_file():
@@ -219,6 +285,7 @@ def build_ground(job: Job, repo: Path) -> None:
         job.finish(False, "Toolchain unvollständig: " + ", ".join(status["missing"])
                    + "\n" + status["hint"])
         return
+    job.log(f"pico-sdk: {status['sdk']}")
 
     ok = _run(job, ["cmake", "-S", "firmware/pico", "-B", "build/pico",
                     "-DCMAKE_BUILD_TYPE=Release"], repo)

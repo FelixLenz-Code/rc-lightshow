@@ -601,12 +601,21 @@ git clone --depth 1 --recurse-submodules \
     https://github.com/raspberrypi/pico-sdk ~/pico-sdk
 ```
 
-`PICO_SDK_PATH` muss beim Bauen gesetzt sein — entweder je Aufruf oder dauerhaft
-in `~/.bashrc`:
+Auf der Kommandozeile muss `PICO_SDK_PATH` gesetzt sein — entweder je Aufruf
+oder dauerhaft in `~/.bashrc`:
 
 ```bash
 export PICO_SDK_PATH=~/pico-sdk
 ```
+
+Der Reiter **Flashen** braucht das nicht: er sucht das SDK selbst, zuerst unter
+`PICO_SDK_PATH` und dann an den üblichen Stellen (`~/pico-sdk`,
+`~/pico/pico-sdk`, `~/.pico-sdk/sdk/<Fassung>`, `/usr/share/pico-sdk`,
+`/opt/pico-sdk`) und gibt den Fund an `cmake` weiter. Das ist kein Komfort,
+sondern Notwendigkeit: aus dem Menü gestartet — der normale Weg beim AppImage —
+erbt die Bridge die Umgebung der Sitzung und nicht die der Shell, und das
+`export` aus der `~/.bashrc` ist dort schlicht nicht vorhanden. Welches SDK
+genommen wurde, steht in der ersten Zeile des Build-Protokolls.
 
 ### Bauen
 
@@ -700,9 +709,11 @@ Ausführlich in [`docs/show-editor.md`](docs/show-editor.md).
 2. Musik auf eine Audiospur ziehen. Die Datei wird ins Projekt kopiert, damit
    der Ordner für sich allein lauffähig bleibt. WAV, FLAC, OGG und MP3.
 3. **＋ Effekt** setzt einen Block am Abspielkopf auf die Lichtspur: Effekt,
-   Farbe, Helligkeit, Tempo, Ein- und Ausblendung. Ziehen verschiebt, an der
-   Kante längen, <kbd>Entf</kbd> löscht. Kanten rasten am Raster ein, <kbd>Alt</kbd>
-   beim Ziehen schaltet das ab.
+   Farbton, Helligkeit, Tempo, Ein- und Ausblendung. Jeder Wert hat Regler und
+   Zahlenfeld — Helligkeit in Prozent, Tempo in Sekunden je Umlauf, der Farbton
+   auch als Hex oder R,G,B zum Einfügen. Ziehen verschiebt, an der Kante längen,
+   <kbd>Entf</kbd> löscht. Kanten rasten am Raster ein, <kbd>Alt</kbd> beim
+   Ziehen schaltet das ab.
 4. Leertaste startet und stoppt. Klicken oder Ziehen im Lineal setzt den
    Abspielkopf; während der Wiedergabe scrollt die Ansicht mit.
 5. Klick auf einen Spurkopf öffnet die Spureinstellungen — Name, Lautstärke,

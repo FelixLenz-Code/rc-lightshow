@@ -316,6 +316,16 @@ label.lbl {
 
 .valrow { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 3px; }
 .valrow .v { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* What the number means -- per cent, seconds per cycle. Always there, even
+   where there is nothing to say: at a fixed width the boxes above one another
+   line up, and a ragged right edge in a column of three reads as a mistake. */
+.valrow .v .unit { display: inline-block; min-width: 16px; }
+
+/* Swatch and paste box under the hue slider. The swatch keeps its size: it is
+   a colour, and a squeezed one is a smear. */
+.colour-row { display: flex; align-items: center; gap: 9px; margin-top: -3px; }
+.colour-row input[type=color] { flex: none; }
+.colour-note { font-size: 11px; line-height: 1.35; margin: 6px 0 0; }
 
 /* ================================================================== previews */
 

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lightshow import flasher
 
 
@@ -91,19 +93,71 @@ def test_flashing_a_missing_image_says_build_first(tmp_path):
 # ---------------------------------------------------------------- toolchain
 
 
-def test_toolchain_reports_a_missing_sdk(monkeypatch, tmp_path):
+@pytest.fixture
+def no_sdk(monkeypatch, tmp_path):
+    """A machine with no pico-sdk anywhere -- neither named nor lying about."""
     monkeypatch.delenv("PICO_SDK_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setattr(flasher, "SDK_PLACES", ("~/pico-sdk",))
+    monkeypatch.setattr(flasher.paths, "workspace", lambda: tmp_path / "workspace")
+
+
+def make_sdk(root: Path) -> Path:
+    (root / "external").mkdir(parents=True)
+    (root / "external" / "pico_sdk_import.cmake").write_text("")
+    return root
+
+
+def test_toolchain_reports_a_missing_sdk(no_sdk):
     status = flasher.toolchain_status()
     assert not status["ok"]
-    assert any("PICO_SDK_PATH" in item for item in status["missing"])
-    assert "export PICO_SDK_PATH" in status["hint"]
+    assert any("pico-sdk" in item for item in status["missing"])
+    assert "git clone" in status["hint"]
+
+
+def test_the_sdk_is_found_where_it_usually_lies(no_sdk, monkeypatch, tmp_path):
+    """Started from the desktop menu there is no PICO_SDK_PATH -- the variable
+    lives in ~/.bashrc, which nothing sources for a program started by clicking.
+    The SDK is still there, and the flash tab must not send anyone after a
+    variable to fix a checkout they already have."""
+    monkeypatch.setattr(flasher.shutil, "which", lambda name: "/usr/bin/" + name)
+    sdk = make_sdk(tmp_path / "home" / "pico-sdk")
+
+    status = flasher.toolchain_status()
+    assert status["ok"], status["missing"]
+    assert status["sdk"] == str(sdk)
+    # And it reaches cmake, which reads it out of the environment.
+    assert flasher.build_env()["PICO_SDK_PATH"] == str(sdk)
+
+
+def test_a_named_sdk_wins_over_the_one_lying_about(no_sdk, monkeypatch, tmp_path):
+    make_sdk(tmp_path / "home" / "pico-sdk")
+    named = make_sdk(tmp_path / "anderswo")
+    monkeypatch.setenv("PICO_SDK_PATH", str(named))
+    assert flasher.find_sdk() == named
+
+
+def test_a_named_directory_that_is_not_the_sdk_does_not_block_the_search(
+        no_sdk, monkeypatch, tmp_path):
+    """A stale PICO_SDK_PATH from an older install must not hide a good SDK."""
+    monkeypatch.setenv("PICO_SDK_PATH", str(tmp_path / "leer"))
+    (tmp_path / "leer").mkdir()
+    sdk = make_sdk(tmp_path / "home" / "pico-sdk")
+    assert flasher.find_sdk() == sdk
+
+
+def test_several_installed_versions_take_the_newest(no_sdk, monkeypatch, tmp_path):
+    monkeypatch.setattr(flasher, "SDK_PLACES", ("~/.pico-sdk/sdk/*",))
+    for version in ("1.5.1", "2.1.0", "2.0.0"):
+        make_sdk(tmp_path / "home" / ".pico-sdk" / "sdk" / version)
+    assert flasher.find_sdk().name == "2.1.0"
 
 
 def test_the_hint_names_only_what_is_missing(monkeypatch, tmp_path):
     """Out of an AppImage this text is the entire installation instruction, so
     it must not send anyone after packages they already have."""
-    (tmp_path / "external").mkdir()
-    (tmp_path / "external" / "pico_sdk_import.cmake").write_text("")
+    make_sdk(tmp_path)
     monkeypatch.setenv("PICO_SDK_PATH", str(tmp_path))
     monkeypatch.setattr(flasher.shutil, "which",
                         lambda name: None if name == "cmake" else "/usr/bin/" + name)
@@ -113,8 +167,7 @@ def test_the_hint_names_only_what_is_missing(monkeypatch, tmp_path):
 
 
 def test_toolchain_accepts_a_real_sdk_layout(monkeypatch, tmp_path):
-    (tmp_path / "external").mkdir()
-    (tmp_path / "external" / "pico_sdk_import.cmake").write_text("")
+    make_sdk(tmp_path)
     monkeypatch.setenv("PICO_SDK_PATH", str(tmp_path))
     monkeypatch.setattr(flasher.shutil, "which", lambda name: "/usr/bin/" + name)
 
@@ -122,7 +175,7 @@ def test_toolchain_accepts_a_real_sdk_layout(monkeypatch, tmp_path):
     assert status["ok"] and status["sdk"] == str(tmp_path)
 
 
-def test_toolchain_rejects_a_directory_that_is_not_the_sdk(monkeypatch, tmp_path):
+def test_toolchain_rejects_a_directory_that_is_not_the_sdk(no_sdk, monkeypatch, tmp_path):
     monkeypatch.setenv("PICO_SDK_PATH", str(tmp_path))
     assert not flasher.toolchain_status()["ok"]
 
@@ -162,7 +215,8 @@ def test_each_model_has_its_own_build_directory(tmp_path):
 
 def test_build_refuses_without_a_generated_header(tmp_path, monkeypatch):
     monkeypatch.setattr(flasher, "toolchain_status",
-                        lambda: {"ok": True, "missing": [], "hint": ""})
+                        lambda: {"ok": True, "missing": [], "hint": "",
+                                 "sdk": "/pico-sdk"})
     job = flasher.Job("test")
     flasher.build_plane(job, tmp_path, "eule")
     assert not job.ok

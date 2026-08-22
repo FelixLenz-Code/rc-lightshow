@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -1085,6 +1085,65 @@ def dump(show: ShowCfg) -> str:
 def load_dict(data: dict[str, Any]) -> ShowCfg:
     """Validates plain data the same way load() validates a file."""
     return _build(data, "<web ui>")
+
+
+def _paired(before: list[Any], after: list[Any]) -> list[tuple[Any, Any]]:
+    """Lines two lists of named things up: `(new, old)`, old None where there
+    is no counterpart.
+
+    By name first, because a name is what a person recognises a chain or a
+    segment by. Where a name has no match but the list is otherwise the same
+    length, position decides -- which is exactly what a rename looks like from
+    here.
+    """
+    remaining: dict[str, list[Any]] = {}
+    for item in before:
+        remaining.setdefault(item.name, []).append(item)
+
+    taken: set[int] = set()
+    pairs: list[tuple[Any, Any]] = []
+    for item in after:
+        candidates = remaining.get(item.name) or []
+        old = candidates.pop(0) if candidates else None
+        if old is not None:
+            taken.add(id(old))
+        pairs.append((item, old))
+
+    if len(before) == len(after):
+        for index, (item, old) in enumerate(pairs):
+            if old is None and id(before[index]) not in taken:
+                pairs[index] = (item, before[index])
+    return pairs
+
+
+def carry_placements(before: ShowCfg, after: ShowCfg) -> None:
+    """Keeps the strips where they were drawn on the model, across a save.
+
+    Where a strip lies on the aircraft is written by the mockup, one segment at
+    a time, and it is the only thing that writes it. The model editor sends the
+    whole document instead -- and its copy is as old as the moment the page
+    loaded it. A strip drawn after that would be undone by the next save of
+    something entirely unrelated, which is how an evening of placing strips
+    disappears behind a change of one pixel count.
+
+    So the drawing comes from the configuration that is loaded, not from the
+    document that arrives. A segment the loaded one does not know keeps whatever
+    it came with: that is a newly added segment, or a whole model arriving from
+    somewhere else.
+    """
+    known = {model.name: model for model in before.models}
+    for model in after.models:
+        was = known.get(model.name)
+        if was is None or was.plane is None or model.plane is None:
+            continue
+        for output, old_output in _paired(was.plane.outputs, model.plane.outputs):
+            if old_output is None:
+                continue
+            for segment, old_segment in _paired(old_output.segments,
+                                                output.segments):
+                if old_segment is not None:
+                    segment.place = (None if old_segment.place is None
+                                     else replace(old_segment.place))
 
 
 # ------------------------------------------------------- one model on its own

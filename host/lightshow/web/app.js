@@ -1697,21 +1697,68 @@ function renderInspector() {
 function wireInspector(apply) {
   const body = $('insp-body');
   body.querySelectorAll('[data-key]').forEach((input) => {
-    const handler = () => {
-      const value = input.type === 'number' || input.type === 'range' ? +input.value
-        : input.type === 'checkbox' ? input.checked : input.value;
-      // A slider and its number box are two views of one value; whichever was
-      // touched updates the other.
-      if (input.dataset.pair) {
-        body.querySelectorAll(`[data-pair="${input.dataset.pair}"]`).forEach((twin) => {
-          if (twin !== input) twin.value = value;
-        });
+    const handler = (event) => {
+      let value;
+      if (input.type === 'number' || input.type === 'range') {
+        value = numberIn(input, event && event.type === 'change');
+        // Half-typed is not a value: a lone minus sign, or an empty box on the
+        // way to another number, must leave the block exactly as it was rather
+        // than set it to nothing.
+        if (value === null) return;
+      } else {
+        value = input.type === 'checkbox' ? input.checked : input.value;
       }
+      // A field in its own unit says what it says; the block stores bytes.
+      const scale = SCALES[input.dataset.scale];
+      if (scale) value = Math.max(0, Math.min(255, scale.from(value)));
+      // A slider and its number box are two views of one value; whichever was
+      // touched updates the other -- each in the unit it speaks.
+      if (input.dataset.pair) showValue(input.dataset.pair, value, input);
       apply(input.dataset.key, value, input);
     };
     const live = input.type === 'text' || input.type === 'number' || input.type === 'range';
     input.addEventListener(live ? 'input' : 'change', handler);
+    // A number box also fires on change, so leaving the field is what puts a
+    // value that was typed past the end back inside it.
+    if (input.type === 'number') input.addEventListener('change', handler);
   });
+}
+
+/* Writes a value into every field that shows it, each in its own unit.
+ *
+ * `except` is the field the value came from: rewriting the box somebody is
+ * typing in would fight the cursor, and rounding through the unit and back
+ * would do it while they watched.
+ */
+function showValue(key, stored, except = null) {
+  $('insp-body').querySelectorAll(`[data-pair="${key}"]`).forEach((field) => {
+    if (field === except) return;
+    if (field.dataset.colour !== undefined) {
+      field.value = hueHex(stored);
+      field.classList.remove('err');
+      return;
+    }
+    const scale = SCALES[field.dataset.scale];
+    field.value = scale ? scale.to(stored) : stored;
+  });
+}
+
+/* What a number field currently says, held to its own limits -- or null while
+ * it says nothing usable.
+ *
+ * A browser holds only its spinner to `min` and `max`; typed in, 300 stands in
+ * a 0..255 box and would go on the wire as 300. Corrected in place only once
+ * the field is left (`settled`): rewriting it mid-typing would turn 25 into
+ * something else while the 5 was still on its way to being 255.
+ */
+function numberIn(input, settled) {
+  const value = Number(input.value);
+  if (input.value.trim() === '' || !Number.isFinite(value)) return null;
+  const low = input.min === '' ? -Infinity : Number(input.min);
+  const high = input.max === '' ? Infinity : Number(input.max);
+  const held = Math.min(high, Math.max(low, value));
+  if (settled && held !== value) input.value = held;
+  return held;
 }
 
 const numberField = (label, value, key, step, min = 0, max = 100000) => `
@@ -1744,12 +1791,154 @@ const rangeField = (label, value, key, min, max, step, unit = '') => `
       min="${min}" max="${max}" step="${step}" value="${value}">
   </div>`;
 
-const sliderField = (label, value, key, extra = '', shown = value) => `
+/* What a block stores and what a person types are not the same number.
+ *
+ * On the wire a light block is four bytes, and the slider is that byte: it has
+ * to be, because the whole range has to be reachable by dragging. Nobody thinks
+ * in bytes, though. Helligkeit is a percentage, Tempo is how long one cycle
+ * takes -- that is what stands under the block in the timeline and what somebody
+ * means when they say "eine Sekunde". So the box beside the slider speaks that
+ * unit and this is where the two are converted.
+ *
+ * `from` is the direction that matters for correctness: it decides what lands
+ * in the show. Both directions are rounded, so a value read out and typed back
+ * in lands within one step of itself -- 128 is "1,05 s", and 1,05 s is 128.
+ */
+const SCALES = {
+  percent: {
+    unit: '%', min: 0, max: 100, step: 1,
+    to: (value) => Math.round(value / 255 * 100),
+    from: (percent) => Math.round(percent / 100 * 255),
+  },
+  // Backwards on purpose: more Tempo is a shorter cycle. The slider still runs
+  // "left slow, right fast", and the box says the seconds it comes to.
+  seconds: {
+    unit: 's', min: 0.1, max: 2, step: 0.01,
+    to: (value) => +(periodMs(value) / 1000).toFixed(2),
+    from: (secs) => Math.round((2000 - secs * 1000) * 255 / 1900),
+  },
+};
+
+/* One value of a light block: the slider in bytes, the box in its own unit.
+ *
+ * The box is not decoration. A cue meant to sit at exactly the hue of the one
+ * before it is set by typing 170, not by pushing a slider until the read-out
+ * happens to agree -- and a slider 200 pixels wide cannot even reach every one
+ * of 256 values.
+ */
+const sliderField = (label, value, key, extra = '', scale = '') => {
+  const s = SCALES[scale];
+  return `
   <div class="f">
     <div class="valrow"><label class="lbl" style="margin:0">${label}</label>
-      <span class="v" data-show="${key}">${shown}</span></div>
-    <input type="range" class="slider ${extra}" min="0" max="255" value="${value}" data-key="${key}">
+      <span class="v"><input type="number" data-key="${key}" data-pair="${key}"
+        ${s ? `data-scale="${scale}" value="${s.to(value)}" min="${s.min}"
+               max="${s.max}" step="${s.step}"`
+            : `value="${value}" min="0" max="255" step="1"`}
+        style="width:74px;text-align:right">
+        <span class="unit">${s ? s.unit : ''}</span></span></div>
+    <input type="range" class="slider ${extra}" min="0" max="255" step="1"
+      value="${value}" data-key="${key}" data-pair="${key}">
   </div>`;
+};
+
+/* ------------------------------------------------------------------- colour */
+
+/* What a hue looks like: full saturation, full value.
+ *
+ * That is what the aircraft makes of it too -- the byte on the wire is a
+ * position on the colour wheel, and how bright it burns is a channel of its
+ * own. So the swatch shows the colour of the hue, not the colour of the block.
+ */
+const hueHex = (hue) => rgbHex(hsv(hue & 255, 255));
+
+/* "#ff8800", "ff8800", "#f80", "255,136,0", "rgb(255 136 0)" -> [r, g, b].
+ *
+ * Six hex digits win over three numbers where a string could be read as either
+ * ("255136"), because that is what six characters of hex means everywhere else.
+ */
+function parseColour(text) {
+  const clean = String(text).trim().toLowerCase();
+  const hex = clean.replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/.test(hex)) return [...hex].map((c) => parseInt(c + c, 16));
+  if (/^[0-9a-f]{6}$/.test(hex))
+    return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16));
+
+  const numbers = clean.replace(/^rgba?/, '').match(/\d+(?:\.\d+)?/g);
+  if (numbers && numbers.length >= 3) {
+    const rgb = numbers.slice(0, 3).map((value) => Math.round(+value));
+    if (rgb.every((value) => value >= 0 && value <= 255)) return rgb;
+  }
+  return null;
+}
+
+/* Which hue comes closest to a colour, or null for one that has none.
+ *
+ * Searched rather than derived. `hsv()` is the firmware's own integer wheel --
+ * six sectors of 43 over a range of 256 -- and inverting that by algebra would
+ * be a second implementation of it to keep in step. Two hundred and fifty six
+ * comparisons cost nothing and are the exact inverse of the thing they compare
+ * against, whatever it does.
+ *
+ * The colour is pulled up to full saturation first, so a dark or washed out
+ * paste finds the hue it is a version of. Grey is not a version of any hue.
+ */
+function hueOf(rgb) {
+  const high = Math.max(...rgb), low = Math.min(...rgb);
+  if (high === low) return null;
+  const pure = rgb.map((c) => (c - low) * 255 / (high - low));
+  let best = 0, closest = Infinity;
+  for (let hue = 0; hue < 256; hue++) {
+    const [r, g, b] = hsv(hue, 255);
+    const distance = (r - pure[0]) ** 2 + (g - pure[1]) ** 2 + (b - pure[2]) ** 2;
+    if (distance < closest) { closest = distance; best = hue; }
+  }
+  return best;
+}
+
+/* The colour boxes under the hue slider.
+ *
+ * Not a fourth value -- the hue, said the way everybody else says colour. A
+ * scheme comes out of a picture or a paint chart as `#ff8800`, and typing 170
+ * requires knowing the wheel by heart. Only the hue survives, because that is
+ * all the wire carries; the swatch snapping to the full colour says so without
+ * a sentence.
+ *
+ * They carry `data-pair` but no `data-key`: the slider and the box own the
+ * value, these two only show it and offer another way in.
+ */
+const colourField = (hue) => `
+  <div class="f">
+    <div class="colour-row">
+      <input type="color" value="${hueHex(hue)}" data-pair="hue" data-colour
+        title="Farbe wählen — genommen wird ihr Farbton">
+      <input type="text" value="${hueHex(hue)}" data-pair="hue" data-colour
+        spellcheck="false" style="width:158px"
+        placeholder="#ff8800 oder 255,136,0"
+        title="Hex oder R,G,B einfügen — genommen wird der Farbton">
+    </div>
+    <p class="dim colour-note">Übernommen wird nur der Farbton — wie hell er
+      brennt, sagt Helligkeit.</p>
+  </div>`;
+
+function wireColour(current, set) {
+  const fields = [...$('insp-body').querySelectorAll('[data-colour]')];
+  for (const field of fields) {
+    field.oninput = () => {
+      const rgb = parseColour(field.value);
+      const hue = rgb === null ? null : hueOf(rgb);
+      // A grey has no hue and an unfinished "#ff88" is not a colour at all.
+      // Neither may move the block: the field says so and is put right when it
+      // is left, which is also how somebody sees that grey was the problem.
+      field.classList.toggle('err', hue === null);
+      if (hue !== null) set(hue, field);
+    };
+    field.onchange = () => {
+      field.classList.remove('err');
+      field.value = hueHex(current());
+    };
+  }
+}
 
 /* A relay block has three things to say: when it starts, how long it stays on
  * and what to call it. No effect, no colour, no fades -- a switch has none. */
@@ -1788,8 +1977,6 @@ function renderSwitchInspector() {
       clampBlock(SEL.track, block);
       SEL.track.blocks.sort((a, b) => a.start_s - b.start_s);
     }
-    const shown = $('insp-body').querySelector(`[data-show="${key}"]`);
-    if (shown) shown.textContent = value;
     markDirty();
     refreshItem(block);
     layoutTimeline();
@@ -1815,10 +2002,9 @@ function renderBlockInspector() {
     <div class="cues" id="cue-picker" style="margin-bottom:15px"></div>
 
     ${sliderField('Farbton', block.hue, 'hue', 'hue')}
-    ${sliderField('Helligkeit', block.brightness, 'brightness', 'level',
-      Math.round(block.brightness / 255 * 100) + ' %')}
-    ${sliderField('Tempo', block.param, 'param', '',
-      (periodMs(block.param) / 1000).toFixed(2) + ' s')}
+    ${colourField(block.hue)}
+    ${sliderField('Helligkeit', block.brightness, 'brightness', 'level', 'percent')}
+    ${sliderField('Tempo', block.param, 'param', '', 'seconds')}
 
     <div class="f"><label class="lbl">Beschriftung</label>
       <input type="text" data-key="label" value="${esc(block.label)}"
@@ -1845,7 +2031,7 @@ function renderBlockInspector() {
 
   buildCuePicker(block);
 
-  wireInspector((key, value) => {
+  const applyBlock = (key, value) => {
     block[key] = value;
     if (key === 'start_s' || key === 'duration_s') {
       clampBlock(SEL.track, block);
@@ -1853,14 +2039,14 @@ function renderBlockInspector() {
     } else if (key === 'fade_in_s' || key === 'fade_out_s') {
       fitFades(block);
     }
-    const shown = $('insp-body').querySelector(`[data-show="${key}"]`);
-    if (shown) {
-      shown.textContent = key === 'brightness' ? Math.round(value / 255 * 100) + ' %'
-        : key === 'param' ? (periodMs(value) / 1000).toFixed(2) + ' s' : value;
-    }
     markDirty();
     refreshItem(block);
     layoutTimeline();
+  };
+  wireInspector(applyBlock);
+  wireColour(() => block.hue, (hue, field) => {
+    showValue('hue', hue, field);
+    applyBlock('hue', hue);
   });
   $('insp-del').onclick = deleteSelection;
 }
@@ -2756,6 +2942,9 @@ $('btn-blackout').onclick = () => post('/api/blackout', {on: !(STATE && STATE.bl
 
 /* ==================================================================== keyboard */
 
+/* The three buttons the transport keys stand for. */
+const TRANSPORT_BUTTONS = ['btn-play', 'btn-pause', 'btn-stop'];
+
 document.addEventListener('keydown', (event) => {
   const tag = event.target.tagName;
   const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(tag) || event.target.isContentEditable;
@@ -2768,6 +2957,9 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+  // A modal dialog is its own little world: the wizard, the help, the question
+  // whether to quit. Enter means "yes" in there, not "play".
+  if (document.querySelector('dialog[open]')) return;
 
   // Blackout is a safety control and works from every view.
   if (event.key === 'b' || event.key === 'B') { $('btn-blackout').click(); return; }
@@ -2788,6 +2980,42 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.key === 'Home') { event.preventDefault(); $('btn-stop').click(); return; }
+
+  /* The number block, as an editing desk has it: 0 goes back to the start,
+   * Enter runs, comma holds. One hand on the keys, eyes on the model -- which
+   * is what running a show at the field actually looks like.
+   *
+   * Asked by `code` rather than by `key`, so it is really the number block:
+   * `key` for the comma is a full stop on some layouts and a comma on others,
+   * and the digit keys along the top row already switch views. */
+  if (event.code === 'Numpad0') {
+    event.preventDefault();
+    FOLLOW = true;
+    // Not stop: back to the beginning is a place, not an end. Running, it keeps
+    // running from there, which is how a passage gets played again and again.
+    seekTo(0);
+    return;
+  }
+  if (event.key === 'Enter') {
+    // On a button, Enter stays what it has always been -- the way a button is
+    // pressed without a mouse. Space may take that liberty because nothing
+    // else means "press this"; Enter does, and a project row that starts the
+    // show instead of opening would be a trap. The transport's own three are
+    // the exception: there both readings say the same thing, and pressing
+    // pause with the mouse and then Enter has to start the show again.
+    if (tag === 'BUTTON' && !TRANSPORT_BUTTONS.includes(event.target.id)) return;
+    event.preventDefault();
+    if (tag === 'BUTTON') event.target.blur();
+    if (event.repeat) return;
+    FOLLOW = true;
+    $('btn-play').click();
+    return;
+  }
+  if (event.code === 'NumpadDecimal' || event.code === 'NumpadComma') {
+    event.preventDefault();
+    $('btn-pause').click();
+    return;
+  }
   if (event.key === 'Delete' || event.key === 'Backspace') {
     if (SEL && VIEW === 'show') { event.preventDefault(); deleteSelection(); }
     return;

@@ -204,11 +204,28 @@ nichts, was ein Telefon auf dem Platz können muss.
 | `+A` / `+L` über den Spurköpfen | Audio- bzw. Lichtspur anlegen |
 | Leertaste | Wiedergabe starten und anhalten |
 | `Pos1` | Stopp, zurück an den Anfang |
+| `Enter` | Wiedergabe |
+| `Num ,` | Pause |
+| `Num 0` | an den Anfang, ohne anzuhalten |
 | `E` | Effektblock am Abspielkopf einfügen |
 | `←` `→` | Abspielkopf um 1 s, mit `Umschalt` um 5 s |
 | `Strg`+`S` | Projekt speichern |
 | Zoom-Regler, `+` / `−`, `Strg`+Mausrad | Auflösung der Zeitachse |
 | `Alt` beim Ziehen | ohne Raster |
+
+Der Ziffernblock ist absichtlich belegt wie an einem Schnittplatz: die linke
+Hand liegt darauf, die Augen sind beim Modell. Die drei Tasten werden am
+`code` erkannt und nicht am Zeichen — das Komma des Ziffernblocks meldet sich je
+nach Belegung als Komma oder als Punkt, und die Ziffernreihe oben wechselt
+weiterhin die Ansicht. `0` springt an den Anfang, **ohne** anzuhalten: läuft die
+Show, läuft sie von vorn weiter, und genau so wird eine Passage zehnmal
+hintereinander angesehen. Solange ein Dialogfenster offen ist, gilt keines der
+Kürzel — dort heißt `Enter` „ja" und nicht „los". Und auf einem Knopf bleibt
+`Enter`, was es überall ist: der Druck auf diesen Knopf. Die Leertaste darf sich
+das erlauben, weil sonst nichts „drück das hier" heißt; `Enter` heißt genau das,
+und eine Projektzeile, die statt zu öffnen die Show startet, wäre eine Falle.
+Ausgenommen sind die drei Transportknöpfe selbst — dort sagen beide Lesarten
+dasselbe.
 
 Der Block **spielt seinen eigenen Effekt ab**: die Bordfirmware ist nach
 JavaScript portiert, das Muster im Block ist also dasselbe, das später am Modell
@@ -240,10 +257,47 @@ Feldern:
 |---|---|
 | Effekt | die Cue-Nummer, siehe [`cues.md`](cues.md) |
 | Beschriftung | freier Text, steht im Block |
-| Farbe | 0–255 über den Farbkreis |
-| Helligkeit | 0–255, vor den Blenden |
-| Tempo | 0–255, Geschwindigkeit des Effekts |
+| Farbton | 0–255 über den Farbkreis; einzufügen auch als Hex oder R,G,B |
+| Helligkeit | in Prozent, vor den Blenden (0–255 auf der Leitung) |
+| Tempo | in Sekunden je Umlauf (0–255 auf der Leitung) |
 | Ein-/Ausblenden | Sekunden; skaliert die Helligkeit |
+
+Farbton, Helligkeit und Tempo haben je einen Regler **und** ein Zahlenfeld, und
+beide bearbeiten denselben Wert — was angefasst wird, zieht das andere nach.
+Der Regler ist zum Suchen da, das Feld zum Treffen: ein Block, der genau den
+Farbton des vorigen tragen soll, wird mit einer getippten 170 gesetzt und nicht
+damit, dass man schiebt, bis die Anzeige zufällig zustimmt — ein 200 Pixel
+breiter Regler kann 256 Werte gar nicht alle erreichen.
+
+Die beiden sprechen dabei **verschiedene Einheiten**, und das ist Absicht. Der
+Regler ist das Byte, das auf die Leitung geht; er muss es sein, weil sich der
+ganze Bereich ziehen lassen muss. In Bytes denkt aber niemand: Helligkeit ist
+ein Prozentsatz, Tempo ist die Zeit, die ein Umlauf braucht — das steht auch
+unter dem Block in der Zeitachse. Also spricht das Feld daneben genau das, mit
+dem Einheitenzeichen dahinter. Beim Tempo läuft das Feld dem Regler entgegen:
+mehr Tempo ist ein kürzerer Umlauf. Nur der Farbton bleibt bei 0–255, weil er
+kein Maß ist, sondern eine Stelle auf dem Farbkreis. Gerundet wird in beide
+Richtungen, ein abgelesener und wieder eingetippter Wert landet also im Rahmen
+eines Schritts bei sich selbst: 128 ist „1,05 s", und 1,05 s ist 128. Eine Zahl
+über dem Ende wird zurückgeholt, sobald das Feld verlassen wird — nicht schon
+beim Tippen, sonst würde aus einer 25 auf dem Weg zur 255 etwas anderes.
+
+Unter dem Farbton-Regler stehen zwei Felder für **dieselbe Sache in Farbe**:
+ein Farbfeld zum Klicken und ein Textfeld, in das sich `#ff8800`, `ff8800`,
+`#f80` oder `255,136,0` einfügen lässt — so kommt ein Farbschema aus einem Bild
+oder einer Farbtabelle in die Show, ohne dass jemand den Farbkreis auswendig
+kann. Übernommen wird davon **nur der Farbton**: die Leitung trägt dafür ein
+einziges Byte, und wie hell er brennt, ist ein Kanal für sich. Eine dunkle oder
+blasse Farbe wird also erst auf volle Sättigung gezogen und dann eingehängt;
+das Farbfeld springt sichtbar auf den vollen Ton und sagt damit, was passiert
+ist. Ein Grau hat gar keinen Farbton und wird abgelehnt — das Feld färbt sich
+rot und der Block bleibt, wie er war.
+
+Welcher Farbton zu einer Farbe gehört, wird **gesucht und nicht gerechnet**:
+`hsv()` in `effects.js` ist die Ganzzahl-Farbkreis der Bordfirmware, sechs
+Sektoren zu 43 über einen Bereich von 256. Den algebraisch umzukehren hieße,
+eine zweite Fassung davon zu pflegen; 256 Vergleiche kosten nichts und sind die
+exakte Umkehrung dessen, womit sie vergleichen — was auch immer es tut.
 
 **Blöcke auf einer Spur dürfen sich nicht überlappen.** Das ist keine
 Bequemlichkeitsgrenze: eine Zone zeigt immer genau einen Effekt, weil `cue` ein
@@ -343,6 +397,11 @@ Drehung, die ein Ende aus dem Bild schöbe, wird gar nicht erst angewandt: ein
 Ende zu begrenzen und das andere nicht würde den Streifen stillschweigend
 kürzen, und die Pixelzahl sagte dann etwas anderes als die Zeichnung.
 
+**Vom Flugzeug nehmen**: <kbd>Entf</kbd> oder der Knopf *Platzierung lösen*.
+Gelöscht wird dabei nichts — der Abschnitt behält seine Pixel und seine Zone,
+weg ist nur die Linie, und er steht wieder als *nicht platziert* in der Liste.
+In der drehbaren Ansicht gibt es keine Auswahl und damit auch nichts zu lösen.
+
 **Aus der Hand legen**: ein Klick ins Leere oder <kbd>Esc</kbd>. Nötig, weil die
 Überlagerung den Zeiger überall durchlässt außer auf einem Griff — sonst käme
 das Ziehen im 3D-Bild nie an der Zeichenfläche an. Der Klick, der einen
@@ -368,6 +427,18 @@ Modellansicht im anderen Fenster kann ungespeicherte Änderungen offen haben; ei
 ganzes Dokument von hier würde sie stillschweigend zurücknehmen. Aus demselben
 Grund bleibt dieser Schreibzugriff während einer laufenden Show erlaubt — es sind
 Koordinaten auf einer Zeichnung, keine Kanäle.
+
+Und umgekehrt genauso: Der Modelleditor schickt sein **ganzes** Dokument, und
+das ist so alt wie der Augenblick, in dem die Seite es geladen hat. Ein Streifen,
+der danach gezogen wurde, verschwände beim nächsten Speichern einer völlig
+anderen Einstellung — ein Abend Platzieren, weg hinter einer geänderten
+Pixelzahl. Beim Speichern übernimmt die Bridge die Zeichnung deshalb aus der
+geladenen Konfiguration und nicht aus dem eintreffenden Dokument
+(`config.carry_placements`). Ein Abschnitt wird dabei am Namen wiedererkannt,
+und wo die Namen nicht zusammengehen, die Form des Modells aber unverändert ist,
+an seiner Stelle — genau so sieht eine Umbenennung von hier aus. Nur für einen
+Abschnitt, den die geladene Konfiguration gar nicht kennt, zählt, was im
+Dokument steht: ein neu angelegter, oder ein Modell, das von woanders kommt.
 
 ### Der Knopf *3D*
 
@@ -582,6 +653,17 @@ einer Handvoll Punktlichter zusammengefasst (wie vielen, sagt der Treiber über
 werfen doppelt so viel wie fünf. Gemittelt hinge die Helligkeit daran, wie das
 Budget gerade aufgeteilt wurde, und dasselbe Flugzeug würde dunkler, sobald ein
 zweiter Streifen dazukommt.
+
+Wo so ein zusammengefasstes Licht **sitzt**, ist der Schwerpunkt seines Lichts
+und nicht die Mitte des Stücks Streifen, für das es steht. Auf einem durchweg
+leuchtenden Streifen ist das dasselbe; auf einem, an dem ein einziges Pixel
+brennt, nicht — und genau das ist der Normalfall, denn ein Positionslicht brennt
+auf einem Streifen, dessen Effekt dunkel ist. Über das ganze Stück gemittelt warf
+die rote Flächenspitze ihren Schein eine Handbreit weiter innen als die Lampe,
+die ihn macht (auf dem Testmodell 12 bis 20 cm daneben), und das Hecklicht
+beleuchtete die falsche Rippe. Ein Stück ohne brennendes Pixel wird gar nicht
+erst als Lampe geschickt — es wirft nichts, und sein Platz im Budget gehört
+damit einem Stück, in dem Licht ist.
 
 #### In linearem Licht gerechnet
 

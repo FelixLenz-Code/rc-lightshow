@@ -472,16 +472,24 @@ function wizStepRadio() {
       <div><label class="lbl">Sender-Buchse</label>
         <select id="wiz-port" style="width:100%">
           ${(CONFIG ? CONFIG.tx_ports : []).map((port) => {
-            // Who sits there already, so a jack is not taken by accident. The
-            // model being edited does not count as occupying its own jack.
             // Who is already there, not "taken": a second model on the same
             // jack is a build, not a mistake. What it has to avoid is their
-            // channel blocks, and that is what the offset below is for.
+            // channel blocks, and that is what the offset below is for. The
+            // model being edited does not count as occupying its own jack.
             const here = (CONFIG.models || []).filter(
               (m) => m.tx_port === port.id && m.name !== WIZ.editing);
-            const state = here.length
-              ? `auch: ${here.map((m) => m.name).join(', ')}`
-              : port.format === 'off' ? 'frei' : port.name;
+            // Everything here is worked out from what stands in the file right
+            // now. The jack's `name` used to be shown instead, and that was a
+            // label nothing ever wrote: it came out of whichever example
+            // configuration the workspace was once seeded with and then said
+            // "eule_sender" for years, on a jack whose eule was long gone.
+            const shape = port.format === 'off' ? ''
+              : port.format === 'sbus' ? 'SBUS'
+              : `PPM ${port.nchan} Kanäle`;
+            const state = [
+              here.length ? `auch: ${here.map((m) => m.name).join(', ')}` : 'frei',
+              shape,
+            ].filter(Boolean).join(' · ');
             return `<option value="${port.id}" ${WIZ.tx_port === port.id ? 'selected' : ''}
               >Buchse ${port.id + 1} · GP${portGpio(port.id)} — ${esc(state)}</option>`;
           }).join('')}

@@ -401,7 +401,8 @@ function glLamps(view, frames) {
     // Which way this strip faces: the axis its own view looks down. A strip
     // placed from above shines up, one placed from the left shines left.
     const facing = FLAT_VIEWS[p.view].back;
-    // One accumulator per bucket: summed position, summed colour, how many.
+    // One accumulator per bucket: position weighted by the light coming out
+    // of it, summed colour, and the weight that goes with the position.
     const buckets = Array.from({length: perSegment},
                                () => [0, 0, 0, 0, 0, 0, 0]);
 
@@ -414,9 +415,6 @@ function glLamps(view, frames) {
       for (const [cx, cy] of CORNERS) {
         pos.push(...point);
         corner.push(cx, cy);
-        // An LED that is off is a bead on the strip, not a lamp. It has to be
-        // visible enough to show where the strip runs and dim enough that
-        // thirty of them do not out-glow the one that is actually lit.
         // An LED that is off is a bead on the strip, not a lamp. Given in the
         // same linear units as a lit one, so the encode at the end treats them
         // alike -- it has to show where the strip runs and stay far enough
@@ -426,13 +424,26 @@ function glLamps(view, frames) {
       }
       const bucket = buckets[Math.min(perSegment - 1,
                                       Math.floor(t * perSegment))];
-      bucket[0] += point[0]; bucket[1] += point[1]; bucket[2] += point[2];
+      // Where a bucket's light comes from is the *centre of its light*, not
+      // the middle of the stretch of strip it stands for. On a strip that is
+      // lit all over the two are the same; on one where a single pixel is lit
+      // they are not, and that single pixel is the usual case -- a navigation
+      // light burns on a strip whose effect is dark. Averaged over the whole
+      // stretch, the red wing tip threw its wash a handspan inboard of the
+      // lamp actually making it, and the tail light lit the wrong rib.
+      const weight = r + g + bl;
+      bucket[0] += point[0] * weight;
+      bucket[1] += point[1] * weight;
+      bucket[2] += point[2] * weight;
       bucket[3] += r; bucket[4] += g; bucket[5] += bl;
-      bucket[6]++;
+      bucket[6] += weight;
     }
 
     for (const bucket of buckets) {
-      if (!bucket[6] || spillPos.length / 3 >= GL_SPILL) continue;
+      // A stretch with nothing lit on it throws nothing. Skipping it rather
+      // than sending a black lamp also leaves its place in the budget to a
+      // bucket that has light in it.
+      if (bucket[6] <= 0 || spillPos.length / 3 >= GL_SPILL) continue;
       const n = bucket[6];
       spillPos.push(bucket[0] / n, bucket[1] / n, bucket[2] / n);
       spillDir.push(facing[0], facing[1], facing[2]);

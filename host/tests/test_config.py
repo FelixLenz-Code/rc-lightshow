@@ -689,6 +689,92 @@ def test_a_placement_survives_the_round_trip_through_yaml(tmp_path):
     assert (place.view, place.x1, place.y2) == ("bottom", 0.1, 0.4)
 
 
+# ------------------------------- die Zeichnung ueberlebt den Modelleditor
+
+PLACED = TWO_ZONES + """
+        - name: rumpf
+          pin: 2
+          count: 60
+          segments:
+            - {name: vorn, start: 0, count: 30, zone: 0,
+               place: {view: left, x1: 0.2, y1: 0.4, x2: 0.8, y2: 0.45}}
+            - {name: hinten, start: 30, count: 30, zone: 1,
+               place: {view: top, x1: 0.1, y1: 0.5, x2: 0.6, y2: 0.5}}
+"""
+
+
+def placed_show(tmp_path):
+    return config_module.load(write(tmp_path, PLACED))
+
+
+def places(show):
+    return [None if segment.place is None else segment.place.view
+            for _, segment in show.models[0].plane.segments]
+
+
+def test_an_older_document_does_not_undo_a_placement(tmp_path):
+    """The mockup is a second window and writes one segment at a time; the model
+    editor sends the whole document, as old as the moment it loaded it. Saving a
+    pixel count there must not put yesterday's drawing back."""
+    loaded = placed_show(tmp_path)
+    # What the editor holds: the same model as it was before anything was drawn.
+    stale = config_module.load_dict(config_module.to_dict(loaded))
+    for _, segment in stale.models[0].plane.segments:
+        segment.place = None
+    stale.models[0].plane.outputs[0].count = 90
+
+    config_module.carry_placements(loaded, stale)
+    assert places(stale) == ["left", "top"]
+    assert stale.models[0].plane.outputs[0].count == 90
+
+
+def test_a_placement_taken_off_in_the_mockup_stays_off(tmp_path):
+    """The other way round, and for the same reason: the loaded configuration
+    is the one that knows about the drawing."""
+    loaded = placed_show(tmp_path)
+    stale = config_module.load_dict(config_module.to_dict(loaded))
+    loaded.models[0].plane.outputs[0].segments[1].place = None
+
+    config_module.carry_placements(loaded, stale)
+    assert places(stale) == ["left", None]
+
+
+def test_renaming_a_segment_keeps_its_drawing(tmp_path):
+    """A rename changes no shape, so the strip has not moved."""
+    loaded = placed_show(tmp_path)
+    edited = config_module.load_dict(config_module.to_dict(loaded))
+    edited.models[0].plane.outputs[0].name = "kette1"
+    edited.models[0].plane.outputs[0].segments[1].name = "leitwerk"
+    for _, segment in edited.models[0].plane.segments:
+        segment.place = None
+
+    config_module.carry_placements(loaded, edited)
+    assert places(edited) == ["left", "top"]
+
+
+def test_a_new_segment_keeps_what_it_arrived_with(tmp_path):
+    """Nothing has been drawn for it yet, and the loaded configuration has
+    nothing to say about a segment it has never seen."""
+    loaded = placed_show(tmp_path)
+    edited = config_module.load_dict(config_module.to_dict(loaded))
+    edited.models[0].plane.outputs[0].segments.append(
+        config_module.SegmentCfg(name="neu", start=60, count=0, zone=0))
+    edited.models[0].plane.outputs[0].count = 60
+
+    config_module.carry_placements(loaded, edited)
+    assert places(edited) == ["left", "top", None]
+
+
+def test_a_model_the_bridge_does_not_know_is_left_alone(tmp_path):
+    """An imported model brings its own drawing; there is nothing to carry."""
+    loaded = placed_show(tmp_path)
+    arriving = config_module.load_dict(config_module.to_dict(loaded))
+    arriving.models[0].name = "geschenkt"
+
+    config_module.carry_placements(loaded, arriving)
+    assert places(arriving) == ["left", "top"]
+
+
 def test_the_generator_never_sees_a_placement(tmp_path):
     """It is a drawing. Nothing about it may reach the aircraft."""
     from lightshow import planegen

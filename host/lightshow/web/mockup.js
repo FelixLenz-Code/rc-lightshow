@@ -226,6 +226,20 @@ function mockPlace(key, place) {
   }).catch(() => { $('mock-note').textContent = 'nicht gespeichert'; });
 }
 
+/* Takes the chosen segment off the aeroplane again.
+ *
+ * Not a deletion: the segment stays, with its pixels and its zone -- what goes
+ * is the line drawn for it, and it lands back in the list as "nicht platziert".
+ * The turnable view cannot place, so it cannot unplace either; there is no
+ * selection to act on there and the button is hidden.
+ */
+function mockUnplace() {
+  if (!MOCK_SELECTED || mock3dOn()) return;
+  mockPlace(MOCK_SELECTED, null);
+  MOCK_SELECTED = null;
+  mockBuild();
+}
+
 /* Where a pointer event lands, in 0..1 of the view's window. */
 function mockPoint(event) {
   const canvas = $('mock-gl');
@@ -435,12 +449,7 @@ function mockInit() {
     mockBuild();
   };
 
-  $('mock-clear').onclick = () => {
-    if (!MOCK_SELECTED) return;
-    mockPlace(MOCK_SELECTED, null);
-    MOCK_SELECTED = null;
-    mockBuild();
-  };
+  $('mock-clear').onclick = mockUnplace;
 
   // How much light there is besides the strips. Low by default: a lightshow is
   // flown after dark, and the window is only worth anything if what it shows is
@@ -500,7 +509,17 @@ function mockInit() {
   };
 
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && MOCK_SELECTED && !MOCK_DRAG) mockSelect(null);
+    const tag = event.target.tagName;
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(tag)) return;
+    if (!MOCK_SELECTED || MOCK_DRAG) return;
+    if (event.key === 'Escape') mockSelect(null);
+    // Entf nimmt den gewählten Abschnitt vom Flugzeug -- dasselbe, was der
+    // Knopf tut, nur ohne den Weg zur Leiste. Rückschritt zählt mit, weil das
+    // im Zeitachsen-Fenster auch löscht.
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      mockUnplace();
+    }
   });
 
   window.addEventListener('resize', () => { if (!MOCK_DRAG) mockDrawOverlay(); });

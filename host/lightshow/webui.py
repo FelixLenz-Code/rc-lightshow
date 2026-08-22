@@ -333,6 +333,9 @@ class Server:
             return {"ok": False, "error": f"ungültige Eingabe: {exc}"}
 
         with self._lock:
+            # Where the strips lie on the model is the mockup's to write, and
+            # this document may be older than the last thing drawn there.
+            config_module.carry_placements(self.show, new_show)
             config_module.save(new_show, self.config_path)
             self.apply_show(new_show)
         return {"ok": True,
